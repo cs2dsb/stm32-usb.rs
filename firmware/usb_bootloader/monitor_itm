@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+
+serialitm /dev/ttyUSB1 2000000

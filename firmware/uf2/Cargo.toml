@@ -1,0 +1,11 @@
+[package]
+name = "uf2"
+version = "0.1.0"
+authors = ["cs2dsb <cs2dsb@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+bitmask               = { version = "0.5.0", default-features = false }
+packed_struct         = { version = "0.3.0", default-features = false }
+packed_struct_codegen = { version = "0.3.0", default-features = false }
+failure               = "0.1.6"

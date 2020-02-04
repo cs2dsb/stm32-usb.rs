@@ -1,0 +1,25 @@
+[package]
+authors = [""]
+edition = "2018"
+readme = "README.md"
+name = "usb_bootloader"
+version = "0.1.0"
+
+[dependencies]
+cortex-m              = "0.6.0"
+cortex-m-rt           = "0.6.9"
+cortex-m-rtfm         = "0.5.0"
+stm32f1               = "0.8.0"
+stm32f1xx-hal         = { git = "https://github.com/stm32-rs/stm32f1xx-hal", features = ["stm32f103", "rt", "high"], rev = "58d286f" }
+embedded-hal          = { version = "0.2.3", features = ["unproven"] }
+itm_logger            = { git = "https://github.com/cs2dsb/itm_logger.rs", default-features = false }
+bitmask               = { version = "0.5.0", default-features = false }
+
+[features]
+default = [ "itm" ]
+itm = [ "itm_logger/logging" ]
+
+[profile.release]
+codegen-units = 1 # better optimizations
+debug = true # symbols are nice and they don't increase the size on Flash
+lto = true # better optimizations
