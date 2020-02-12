@@ -1,23 +1,38 @@
-use std::{
-    path::PathBuf,
-    io::Write,
-    fs::{ self, File },
-    env,
+use goblin::{
+    elf::{
+        Elf,
+        program_header::PT_LOAD,
+    },
+    error::Error as GoblinError,
 };
-use structopt::StructOpt;
-use clap::arg_enum;
-use goblin::elf::{
-    Elf,
-    program_header::PT_LOAD,
-};
-use failure::Fallible;
 use uf2::DATA_LENGTH;
-use env_logger;
-use log::*;
-use uf2::{ Block, Error };
+use uf2::{ Block, Error as Uf2Error };
 use log::trace;
+use std::io::Error as IoError;
 
-fn blockify(base_address: u32, block_size: usize, data: &[u8]) -> Fallible<Vec<Block>> {
+#[derive(Debug)]
+pub enum Error {
+    Uf2Error(Uf2Error),
+    GoblinError(GoblinError),
+    IoError(IoError),
+}
+impl From<Uf2Error> for Error {
+    fn from(e: Uf2Error) -> Error {
+        Error::Uf2Error(e)
+    }
+}
+impl From<GoblinError> for Error {
+    fn from(e: GoblinError) -> Error {
+        Error::GoblinError(e)
+    }
+}
+impl From<IoError> for Error {
+    fn from(e: IoError) -> Error {
+        Error::IoError(e)
+    }
+}
+
+fn blockify(base_address: u32, block_size: usize, data: &[u8]) -> Result<Vec<Block>, Error> {
     let res: Result<Vec<_>, _> = data
         .chunks(block_size)
         .enumerate()
@@ -27,7 +42,7 @@ fn blockify(base_address: u32, block_size: usize, data: &[u8]) -> Fallible<Vec<B
             )
         )
         .collect();
-    res
+    Ok(res?)
 }
 
 fn finalize(blocks: Vec<Block>) -> Vec<u8> {
@@ -40,17 +55,17 @@ fn finalize(blocks: Vec<Block>) -> Vec<u8> {
     }).collect()
 }
 
-fn block_size(page_size: u16) -> Fallible<usize> {
+fn block_size(page_size: u16) -> Result<usize, Error> {
     let page_size = page_size as usize;
     if page_size > DATA_LENGTH {
-        Err(Error::DataTooLong)?
+        Err(Uf2Error::DataTooLong)?
     }
     Ok((DATA_LENGTH / page_size) * page_size)
 }
 
 /// Parses provided bytes as an ELF file and converts contained PT_LOAD segments
 /// into UF2 blocks. Will fail if bytes aren't a valid ELF file
-pub fn convert_elf(data: &[u8], page_size: u16) -> Fallible<Vec<u8>> {
+pub fn convert_elf(data: &[u8], page_size: u16) -> Result<Vec<u8>, Error> {
     let block_size = block_size(page_size)?;
     let mut blocks = Vec::new();
     for header in Elf::parse(&data)?.program_headers {
@@ -69,7 +84,7 @@ pub fn convert_elf(data: &[u8], page_size: u16) -> Fallible<Vec<u8>> {
 
 /// Converts provided bytes into UF2 blocks assuming bytes are a BIN file
 /// No checking on the data is performed
-pub fn convert_bin(data: &[u8], page_size: u16, base_address: u32) -> Fallible<Vec<u8>> {
+pub fn convert_bin(data: &[u8], page_size: u16, base_address: u32) -> Result<Vec<u8>, Error> {
     let block_size = block_size(page_size)?;
     let blocks = blockify(
         base_address,

@@ -6,10 +6,9 @@ use std::{
 };
 use structopt::StructOpt;
 use clap::arg_enum;
-use failure::Fallible;
 use env_logger;
 use log::*;
-use uf2_util::{ convert_elf, convert_bin };
+use uf2_util::{ convert_elf, convert_bin, Error };
 
 arg_enum! {
     #[derive(Debug, PartialEq)]
@@ -46,7 +45,7 @@ struct Opt {
     page_size: u16,
 }
 
-fn main() -> Fallible<()> {
+fn main() -> Result<(), Error> {
     if env::var(env_logger::DEFAULT_FILTER_ENV).is_err() {
         // Set the default logging verbosity
         env::set_var(

@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 bitmask               = { version = "0.5.0", default-features = false }
-packed_struct         = { version = "0.3.0", default-features = false }
-packed_struct_codegen = { version = "0.3.0", default-features = false }
-failure               = "0.1.6"
+packed_struct         = { git = "https://github.com/cs2dsb/packed_struct.rs", default-features = false }
+packed_struct_codegen = { git = "https://github.com/cs2dsb/packed_struct.rs", default-features = false }
+#packed_struct         = { path = "../../../../rust/packed_struct.rs/packed_struct", default-features = false }
+#packed_struct_codegen = { path = "../../../../rust/packed_struct.rs/packed_struct_codegen", default-features = false }

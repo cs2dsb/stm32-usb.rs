@@ -1,8 +1,12 @@
 #![no_std]
+
 use core::ops::Deref;
 use bitmask::bitmask;
 use packed_struct_codegen::PackedStruct;
-use failure::{ Fallible, Fail };
+use packed_struct::{
+    PackedStruct,
+    PackingError,
+};
 
 pub const DATA_LENGTH: usize = 476;
 
@@ -106,14 +110,21 @@ pub struct Block {
     magic_end: MagicEnd,
 }
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Clone, Copy)]
 pub enum Error {
-    #[fail(display = "Data provided is too long for maximum UF2 block")]
     DataTooLong,
+    InsufficientPackedBytes,
+    PackingError(PackingError),
+}
+
+impl From<PackingError> for Error {
+    fn from(e: PackingError) -> Error {
+        Error::PackingError(e)
+    }
 }
 
 impl Block {
-    pub fn new(target_address: u32, data: &[u8]) -> Fallible<Self> {
+    pub fn new(target_address: u32, data: &[u8]) -> Result<Self, Error> {
         if data.len() > DATA_LENGTH {
             Err(Error::DataTooLong)?
         }
@@ -132,6 +143,14 @@ impl Block {
     }
 
     pub fn pack(&self) -> [u8; 512] {
-        packed_struct::PackedStruct::pack(self)
+        PackedStruct::pack(self)
+    }
+
+    pub fn parse(data: &[u8]) -> Result<Self, Error> {
+        if data.len() < Self::BYTES {
+            Err(Error::InsufficientPackedBytes)?;
+        }
+        // TODO: update packed struct macro to remove the need for this
+        Ok(Self::unpack(unsafe { &*(data as *const _ as *const _) })?)
     }
 }
