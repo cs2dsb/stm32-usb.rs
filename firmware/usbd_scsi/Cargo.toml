@@ -1,5 +1,5 @@
 [package]
-name = "usbd-mass-storage"
+name = "usbd-scsi"
 version = "0.1.0"
 authors = ["cs2dsb <cs2dsb@gmail.com>"]
 edition = "2018"
@@ -15,8 +15,19 @@ packed_struct         = { git = "https://github.com/cs2dsb/packed_struct.rs", de
 packed_struct_codegen = { git = "https://github.com/cs2dsb/packed_struct.rs", default-features = false }
 #packed_struct         = { path = "../../../../rust/packed_struct.rs/packed_struct", default-features = false }
 #packed_struct_codegen = { path = "../../../../rust/packed_struct.rs/packed_struct_codegen", default-features = false }
-
+codegen               = { path = "./codegen" }
+uf2                   = { path = "../uf2" }
+usbd-mass-storage     = { path = "../usbd_mass_storage" }
+usbd-bulk-only-transport = { path = "../usbd_bulk_only_transport" }
 
 [features]
-trace-usb-control = []
-trace-all = [ "trace-usb-control" ]
+trace-bot-headers = [ "usbd-bulk-only-transport/trace-bot-headers" ]
+trace-bot-states = [ "usbd-bulk-only-transport/trace-bot-states" ]
+trace-bot-bytes = [ "usbd-bulk-only-transport/trace-bot-bytes" ]
+trace-bot-zlp = [ "usbd-bulk-only-transport/trace-bot-zlp" ]
+trace-bot-buffer = [ "usbd-bulk-only-transport/trace-bot-buffer" ]
+trace-usb-control = [ "usbd-bulk-only-transport/trace-usb-control" ]
+trace-scsi-command = []
+trace-scsi-fs = []
+trace-all = [ "trace-bot-headers", "trace-bot-states", "trace-bot-bytes", "trace-bot-zlp", "trace-bot-buffer",
+              "trace-scsi-command", "trace-scsi-fs", "trace-usb-control" ]

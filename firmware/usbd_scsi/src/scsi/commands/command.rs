@@ -25,7 +25,7 @@ where
 pub enum CommandLength {
     C6,
     C10,
-    C12,
+    //C12,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq, Debug, PrimitiveEnum)]
@@ -254,19 +254,4 @@ pub struct CommandStatusWrapper {
     ///        a reset gives indeterminate results.
     #[packed_field(element_size_bytes="1", ty="enum")]
     pub status: CommandStatus,
-}
-
-impl CommandStatusWrapper {
-    const SIGNATURE: u32 = 0x53425355;
-
-    /// Create a new CommandStatusWrapper with the correct signature, status
-    /// set to OK and tag & data_residue set to 0
-    pub fn new() -> Self {
-        Self {
-            signature: Self::SIGNATURE,
-            tag: 0,
-            data_residue: 0,
-            status: CommandStatus::CommandOk,
-        }
-    }
 }

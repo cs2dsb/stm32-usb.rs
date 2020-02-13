@@ -54,6 +54,7 @@ impl Default for ModeParameterHeader10 {
         }
     }
 }
+/*
 impl ModeParameterHeader10 {
     /// Increase the relevant length fields to indicate the provided page follows this header
     /// can be called multiple times but be aware of the max length allocated by CBW
@@ -61,6 +62,8 @@ impl ModeParameterHeader10 {
         self.mode_data_length += page.len() as u16;
     }
 }
+*/
+
 
 #[derive(Clone, Copy, Eq, PartialEq, Debug, PackedStruct, Default)]
 #[packed_struct(endian="msb", bit_numbering="msb0")]

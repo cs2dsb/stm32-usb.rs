@@ -5,18 +5,17 @@ use packed_struct::{
 use usb_device::class_prelude::*;
 use usb_device::Result as UsbResult;
 
+use usbd_bulk_only_transport::{
+    BulkOnlyTransport,
+    Error as BulkOnlyTransportError,
+    TransferState,
+};
+
+use usbd_mass_storage::InterfaceSubclass;
+
 use crate::{
     logging::*,
     ghost_fat::GhostFat,
-    InterfaceSubclass,
-    bulk_only_transport::{
-        BulkOnlyTransport,
-        Error as BulkOnlyTransportError,
-        //CommandBlockWrapper,
-        TransferState,
-        WouldBlock,
-        accept_would_block,
-    },
     scsi::{
         Command,
         CommandBlockWrapper as CommandBlockWrapper_OLD,
@@ -33,6 +32,13 @@ use crate::{
 };
 
 const BLOCK_SIZE: usize = 512;
+
+fn accept_would_block(r: Result<(), BulkOnlyTransportError>) -> Result<(), BulkOnlyTransportError> {
+    match r {
+        Ok(_) | Err(BulkOnlyTransportError::UsbError(UsbError::WouldBlock)) => Ok(()),
+        e => e
+    }
+}
 
 
 /// # Scsi Transparent Command Set implementation
@@ -57,6 +63,7 @@ impl<B: UsbBus> Scsi<'_, B> {
                 alloc, 
                 max_packet_size, 
                 InterfaceSubclass::ScsiTransparentCommandSet,
+                0,
             ),
             current_command: Command::None,
             inquiry_response: inquiry_response(),
@@ -119,7 +126,7 @@ impl<B: UsbBus> Scsi<'_, B> {
         };
 
         if skip {
-            Err(WouldBlock)?;
+            Err(UsbError::WouldBlock)?;
         }
 
         let new_command = self.get_new_command();

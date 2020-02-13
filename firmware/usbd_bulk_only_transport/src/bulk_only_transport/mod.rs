@@ -15,6 +15,4 @@ pub use bulk_only_transport::{
     BulkOnlyTransport,
     TransferState,
     Error,
-    WouldBlock,
-    accept_would_block,
 };

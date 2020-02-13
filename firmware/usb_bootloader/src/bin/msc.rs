@@ -31,10 +31,8 @@ use usb_device::{
 };
 //use usb_device::prelude::*;
 use usbd_serial::{CdcAcmClass, SerialPort, USB_CLASS_CDC};
-use usbd_mass_storage::{
-    Scsi,
-    USB_CLASS_MSC,
-};
+use usbd_mass_storage::USB_CLASS_MSC;
+use usbd_scsi::Scsi;
 use itm_logger::*;
 
 // VID and PID are from dapboot bluepill bootloader

@@ -4,21 +4,31 @@ use packed_struct::{
     PackingError,
 };
 use usb_device::class_prelude::*;
-use usb_device::Result as UsbResult;
+use usb_device::{
+    Result as UsbResult,
+    control::{
+        RequestType,
+        Request,
+    },
+};
 pub use UsbError::WouldBlock;
 
-use crate::{
-    logging::*,
-    msc::MscClass,
+use usbd_mass_storage::{
+    MscClass,
     InterfaceSubclass,
     InterfaceProtocol,
 };
+use crate::logging::*;
 use super::{
     CommandBlockWrapper,
     CommandStatusWrapper,
     Direction,
     CommandStatus,
 };
+
+
+const REQ_GET_MAX_LUN: u8 = 0xFE;
+const REQ_BULK_ONLY_RESET: u8 = 0xFF;
 
 #[derive(Debug)]
 pub enum Error {
@@ -27,14 +37,6 @@ pub enum Error {
     DataError,
     InsufficientBufferAvailable,
 }
-
-pub fn accept_would_block(r: Result<(), Error>) -> Result<(), Error> {
-    match r {
-        Ok(_) | Err(Error::UsbError(WouldBlock)) => Ok(()),
-        e => e
-    }
-}
-
 
 impl From<UsbError> for Error {
     fn from(e: UsbError) -> Error {
@@ -92,16 +94,31 @@ pub enum TransferState {
 ///
 /// [Glossary](index.html#glossary)
 /// 
-/// At a high level this module handles:
+/// ## Functionality overview
 /// 1. Reading CBWs
 /// 1. Initiating a data transfer with the length and direction from the CBW
 /// 1. Sending USB packets to the underlaying driver when there is data in the buffer
 /// 1. Terminating the data transfer when enough data is processed or early termination is requested
 /// 1. Adding ZLP when necessary
 /// 1. Sending CSW with correct data residue
+/// 1. Responding to class specific control requests (bulk only reset and get max lun)
+///
+/// ## Unimplemented/Untested:
+/// 1. More than 1 LUN - the SCSI implementation used for testing uses LUN 0 and responds to requests
+///    for any other LUN with CommandError. This class will respond to get max lun correctly for any
+///    valid value of `max_lun` but I haven't implemented anything that uses more than 1 LUN
+/// 1. Bulk only mass storage reset that takes any length of time - the spec (Section 3.1 [USB Bulk Only Transport Spec](https://www.usb.org/document-library/mass-storage-bulk-only-10))
+///    allows for the reset request to kick off the reset and have the host wait/poll until the reset
+///    is done. This is likely for devices where the reset might take a long (relative to poll rate) time.
+///    This isn't implemented here.
+///
 pub struct BulkOnlyTransport<'a, B: UsbBus> {
     inner: MscClass<'a, B>,
     
+    /// This is the response this class will give to the Get Max LUN request
+    /// must be between 0 and 15, which is checked in the new function
+    max_lun: u8,
+
     /// Are we waiting, sending or receiving data
     state: State,
 
@@ -130,7 +147,13 @@ pub struct BulkOnlyTransport<'a, B: UsbBus> {
 }
 
 impl<B: UsbBus> BulkOnlyTransport<'_, B> {
-    pub fn new(alloc: &UsbBusAllocator<B>, max_packet_size: u16, subclass: InterfaceSubclass) -> BulkOnlyTransport<'_, B> {
+    pub fn new(
+        alloc: &UsbBusAllocator<B>, 
+        max_packet_size: u16, 
+        subclass: InterfaceSubclass,
+        max_lun: u8,
+    ) -> BulkOnlyTransport<'_, B> {
+        assert!(max_lun < 16);
         BulkOnlyTransport {
             inner: MscClass::new(
                 alloc, 
@@ -138,6 +161,7 @@ impl<B: UsbBus> BulkOnlyTransport<'_, B> {
                 subclass,
                 InterfaceProtocol::BulkOnlyTransport,
             ),
+            max_lun,
             state: State::WaitingForCommand,
             command_block_wrapper: Default::default(),
             command_status_wrapper: Default::default(),
@@ -155,17 +179,6 @@ impl<B: UsbBus> BulkOnlyTransport<'_, B> {
 
     fn max_packet_usize(&self) -> usize {
         self.max_packet_size() as usize
-    }
-
-    pub fn update(&mut self) -> Result<(), Error> {
-        match self.state {
-            State::WaitingForCommand => self.waiting_for_command()?,
-            State::SendingDataToHost => self.sending_data_to_host()?,
-            State::ReceivingDataFromHost => self.receiving_data_from_host()?,
-            State::NeedZlp => self.send_zlp()?,
-            State::NeedToSendStatus => self.need_to_send_status()?,
-        }
-        Ok(())
     }
 
     pub fn read(&mut self) -> Result<(), Error> {
@@ -456,27 +469,45 @@ impl<B: UsbBus> BulkOnlyTransport<'_, B> {
     pub fn send_command_ok(&mut self) -> Result<(), Error> {
         self.command_status_wrapper.status = CommandStatus::CommandOk;
         self.data_done = true;
-        self.update()
+        self.check_end_data_transfer()
     }
 
     pub fn send_command_error(&mut self) -> Result<(), Error> {
         self.command_status_wrapper.status = CommandStatus::CommandError;
         self.data_done = true;
-        self.update()
+        self.check_end_data_transfer()
     }
 
     fn sending_data_to_host(&mut self) -> Result<(), Error> {
         // Send as much data as possible from the current buffer
         self.flush()?;
 
-        if self.command_status_wrapper.data_residue == 0 {
-            trace_bot_states!("STATE> Data residue = 0, all data sent");
-            self.end_data_transfer()?;
-        } else if self.data_done && self.data_i == self.buffer_i {
-            trace_bot_states!("STATE> Data residue > 0, early termination");
-            self.end_data_transfer()?;
-        }
+        self.check_end_data_transfer()
+    }
 
+    fn check_end_data_transfer(&mut self) -> Result<(), Error> {
+        match self.state {
+            State::ReceivingDataFromHost => {
+                // Check if we've read everything we were expecting
+                if self.command_status_wrapper.data_residue == 0 &&
+                    // AND it's been handled
+                    self.data_i == self.buffer_i
+                {
+                    trace_bot_states!("STATE> Data residue = 0 and buffer empty, all data received");
+                    self.end_data_transfer()?;
+                }
+            },
+            State::SendingDataToHost => {
+                if self.command_status_wrapper.data_residue == 0 {
+                    trace_bot_states!("STATE> Data residue = 0, all data sent");
+                    self.end_data_transfer()?;
+                } else if self.data_done && self.data_i == self.buffer_i {
+                    trace_bot_states!("STATE> Data residue > 0, early termination");
+                    self.end_data_transfer()?;
+                }
+            }
+            _ => {},
+        }
         Ok(())
     }
 
@@ -505,13 +536,7 @@ impl<B: UsbBus> BulkOnlyTransport<'_, B> {
         
         }
 
-        // Check if we've read everything we were expecting
-        if self.command_status_wrapper.data_residue == 0 &&
-            // AND it's been handled
-            self.data_i == self.buffer_i
-        {
-            self.end_data_transfer()?;
-        }
+        self.check_end_data_transfer()?;
 
         Ok(())
     }
@@ -526,7 +551,6 @@ impl<B: UsbBus> BulkOnlyTransport<'_, B> {
 
         Ok(())
     }
-
 }
 
 impl<B: UsbBus> UsbClass<B> for BulkOnlyTransport<'_, B> {
@@ -535,7 +559,7 @@ impl<B: UsbBus> UsbClass<B> for BulkOnlyTransport<'_, B> {
     }
 
     fn reset(&mut self) { 
-        warn!("##############           RESET BulkOnlyTransport          ###################");
+        trace_usb_control!("USB_CONTROL> reset");
         self.buffer_i = 0;
         self.data_i = 0;
         self.data_done = false;
@@ -544,7 +568,46 @@ impl<B: UsbBus> UsbClass<B> for BulkOnlyTransport<'_, B> {
     }
 
     fn control_in(&mut self, xfer: ControlIn<B>) {
-        self.inner.control_in(xfer)
+        let req = xfer.request();
+        
+        // Check it's the right interface first
+        if !self.inner.correct_interface_number(req.index) {
+            // Inner might still want to deal with it
+            self.inner.control_in(xfer);
+            // But we don't
+            return;
+        }
+
+        let handled_res = match req {
+            // Get max lun
+            Request { request_type: RequestType::Class, request: REQ_GET_MAX_LUN, .. } =>
+                Some(xfer.accept(|data| {
+                    trace_usb_control!("USB_CONTROL> Get max lun. Response: {}", self.max_lun);
+                    data[0] = self.max_lun;
+                    Ok(1)
+                })),
+
+            // Bulk only mass storage reset
+            Request { request_type: RequestType::Class, request: REQ_BULK_ONLY_RESET, .. } => {
+                // There's some more functionality around this request to allow the reset to take
+                // more time - NAK the status until the reset is done.
+                // This isn't implemented.
+                // See Section 3.1 [USB Bulk Only Transport Spec](https://www.usb.org/document-library/mass-storage-bulk-only-10)
+                self.reset();
+                Some(xfer.accept(|_| {
+                    trace_usb_control!("USB_CONTROL> Bulk only mass storage reset");
+                    Ok(0)
+                }))
+            },
+            _ => {
+                self.inner.control_in(xfer);
+                None
+            },
+        };
+
+        if let Some(Err(e)) = handled_res {
+            error!("Error from ControlIn.accept: {:?}", e);
+        }
     }
 
     fn control_out(&mut self, xfer: ControlOut<B>) {
@@ -552,18 +615,6 @@ impl<B: UsbBus> UsbClass<B> for BulkOnlyTransport<'_, B> {
     }
 
     fn poll(&mut self) { 
-        if let Err(e) = self.update() {
-            match e {
-                // This one is ok, don't worry
-                Error::UsbError(WouldBlock) => {},
-
-                // This is a logical error in the program
-                Error::PackingError(p) => panic!("PackingError: {:?}", p),
-
-                // Anything else... at least log it...
-                // TODO: Set CommandError?
-                e => { error!("Error from BulkOnlyTransport::update: {:?}", e); },
-            }
-        }
+        panic!("BulkOnlyTransport::poll should never be called. Consumers (SCSI for example) should use BulkOnlyTransport::read and BulkOnlyTransport::write");
     }
 }
