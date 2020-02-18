@@ -216,7 +216,7 @@ impl<B: UsbBus> BulkOnlyTransport<'_, B> {
 
         if self.buffer_i >= CommandBlockWrapper::BYTES {
             trace_bot_buffer!("BUFFER> full enough to try deserializing command block wrapper");
-            let cbw = CommandBlockWrapper::unpack_slice(&self.buffer)
+            let cbw = CommandBlockWrapper::unpack(&self.buffer)
                 // We don't want to return a PackingError here because that's a fatal error
                 // TODO: Possibly should set PhaseError?
                 .map_err(|_| Error::DataError);

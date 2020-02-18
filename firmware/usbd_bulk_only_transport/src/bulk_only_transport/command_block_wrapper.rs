@@ -1,4 +1,5 @@
-use packed_struct_codegen::PackedStruct;
+use packing::Packed;
+
 use super::Direction;
 
 /// Signature that identifies this packet as CBW
@@ -8,8 +9,8 @@ const SIGNATURE_1: u8 = ((SIGNATURE >> 8) & 0xFF) as u8;
 const SIGNATURE_2: u8 = ((SIGNATURE >> 16) & 0xFF) as u8;
 const SIGNATURE_3: u8 = ((SIGNATURE >> 24) & 0xFF) as u8;
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PackedStruct)]
-#[packed_struct(endian="lsb")]
+#[derive(Packed, Clone, Copy, Eq, PartialEq, Debug)]
+#[packed(little_endian, lsb0)]
 /// A wrapper that identifies a command sent from the host to the
 /// device on the OUT endpoint. Describes the data transfer IN or OUT
 /// that should happen immediatly after this wrapper is received.
@@ -17,32 +18,38 @@ const SIGNATURE_3: u8 = ((SIGNATURE >> 24) & 0xFF) as u8;
 pub struct CommandBlockWrapper {
     /// Signature that identifies this packet as CBW
     /// Must contain 0x43425355
+    #[packed(start_bit=7, end_bit=0, start_byte=0, end_byte=3)]
     pub signature: u32,
     /// Tag sent by the host. Must be echoed back to host in tag
     /// field of the command status wrapper sent after the command
     /// has been executed/rejected. Host uses it to positively 
     /// associate a CSW with the corresponding CBW
+    #[packed(start_bit=7, end_bit=0, start_byte=4, end_byte=7)]
     pub tag: u32,
     /// Number of bytes of data that the host expects to receive on
     /// the IN or OUT endpoint (as indicated by the direction field) 
     /// during the execution of this command. If this field is zero, 
     /// must respond directly with CSW
+    #[packed(start_bit=7, end_bit=0, start_byte=8, end_byte=11)]
     pub data_transfer_length: u32,
     /// Direction of transfer initiated by this command.
     /// 0b0XXXXXXX = OUT from host to device
     /// 0b1XXXXXXX = IN from device to host
     /// X bits are obsolete or reserved
-    #[packed_field(element_size_bytes="1", ty="enum")]
+    #[packed(start_bit=7, end_bit=0, start_byte=12, end_byte=12)]
     pub direction: Direction,
     /// The device Logical Unit Number (LUN) to which the command is
     /// for. For devices that don't support multiple LUNs the host will
     /// set this field to zero.
     /// Devices that don't support multiple LUNS must not ignore this 
     /// field and apply all commands to LUN 0, [see General Problems with Commands](http://janaxelson.com/device_errors.htm)
+    #[packed(start_bit=7, end_bit=0, start_byte=13, end_byte=13)]
     pub lun: u8,
     /// The number of valid bytes in data field
+    #[packed(start_bit=7, end_bit=0, start_byte=14, end_byte=14)]
     pub data_length: u8,
     /// The command set specific data for this command
+    #[packed(start_bit=7, end_bit=0, start_byte=15, end_byte=30)]
     pub data: [u8; 16],
 }
 

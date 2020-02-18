@@ -16,6 +16,7 @@ packed_struct_codegen = { git = "https://github.com/cs2dsb/packed_struct.rs", de
 #packed_struct         = { path = "../../../../rust/packed_struct.rs/packed_struct", default-features = false }
 #packed_struct_codegen = { path = "../../../../rust/packed_struct.rs/packed_struct_codegen", default-features = false }
 usbd-mass-storage     = { path = "../usbd_mass_storage" }
+packing               = { path = "../packing/packing" }
 
 [features]
 trace-bot-headers = []

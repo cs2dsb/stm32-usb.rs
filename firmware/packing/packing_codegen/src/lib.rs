@@ -21,7 +21,6 @@ use syn::{
     MetaNameValue,
     DataStruct,
     Type,
-    TypePath,
 };
 use std::fmt::{
     Debug,
@@ -97,8 +96,10 @@ fn flatten_attrs(attrs: &Vec<Attribute>) -> Result<Vec<Attr>, Error> {
                     });
                 }
             },
-            // This means #[packed] with no extra attributes
+            // #[packed] with no extra attributes
             Ok(Meta::Path(_)) => {},
+            // #[doc] or similar
+            Ok(Meta::NameValue(_m)) => {},
             x => panic!("x: {:?}", x),
         }
     }
@@ -318,20 +319,19 @@ const SUPPORTED_FIELD_TYPES: [(&str, usize); 4] = [
     ("bool", 1),
 ];
 
-fn get_bit_width(ident: &Ident) -> Result<usize, Error> {
+fn get_bit_width(ident: &Ident) -> Option<usize> {
     for (i, size) in SUPPORTED_FIELD_TYPES.iter() {
         if ident.eq(i) {
-            return Ok(*size);
+            return Some(*size);
         }
     }
-    Err(Error::new(ident.span(), format!("Unsupported field type {:?}", ident)))
+    None
 }
 
 struct Field {
     name: Ident,
-    out_bits: usize,
-    out_ident: Ident,
-    out_type: TypePath,
+    out_bits: Option<usize>,
+    out_type: Type,
     width: Width,
     space: Space,
     start_byte: StartByte,
@@ -343,7 +343,7 @@ struct Field {
 
 struct ExplicitField {
     name: Ident,
-    out_type: TypePath,
+    out_type: Type,
     start_bit: usize,
     end_bit: usize,
     endian: Endian,
@@ -352,11 +352,60 @@ struct ExplicitField {
     end_byte: usize,
 }
 
+fn map_typenum(b: usize) -> Ident {
+    format_ident!("U{}", b)
+}
+
+impl ExplicitField {
+    fn get_pack_pair(&self) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
+        let name = &self.name;
+        let ty = &self.out_type;
+        let sbit = map_typenum(7-(self.start_bit % 8) );
+        let ebit = map_typenum(7-(self.end_bit % 8) );
+        let width = map_typenum(self.width_bytes);
+        let width_bytes = self.width_bytes;
+        let sbyte = self.start_byte;
+        let ebyte = self.end_byte;
+        let endian = if self.endian == Endian::Little {
+            format_ident!("LittleEndian")
+        } else {
+            format_ident!("BigEndian")
+        };
+
+        match &self.out_type {
+            Type::Path(_p) => (
+                quote! { <#ty as Packed<#sbit, #ebit, #width>>::pack::<packing::#endian>(&self.#name, &mut bytes[#sbyte..=#ebyte])?; },
+                quote! { #name: <#ty as Packed<#sbit, #ebit, #width>>::unpack::<packing::#endian>(&bytes[#sbyte..=#ebyte])?, },
+            ),
+            Type::Array(a) => {
+                match &*a.elem {
+                    Type::Path(p) => {
+                        if !p.path.is_ident("u8") {
+                            panic!("Only u8 arrays supported ({:?})", p.path);
+                        }
+
+                        (
+                            quote! { bytes[#sbyte..=#ebyte].copy_from_slice(&self.#name); }, 
+                            quote! { #name: {
+                                let mut t = [0; #width_bytes];
+                                t.copy_from_slice(&bytes[#sbyte..=#ebyte]);
+                                t
+                            }, }
+                        )
+                    },
+                    other => panic!("Unsupported array element type: {:?}", other),
+                }
+            },
+            other => panic!("Unhandled out type {:?}", other),
+        }
+    }
+}
+
 impl Debug for Field {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, r"Field {{
     name: {},
-    out_bits: {}, 
+    out_bits: {:?}, 
     width: {:?},
     space: {:?},
     start_byte: {:?},
@@ -418,15 +467,15 @@ fn inner(input: DeriveInput) -> Result<TokenStream, Error> {
     for f in named_fields.named {
         let attrs = flatten_attrs(&f.attrs)?;
 
-        let ty = match f.ty {
-            Type::Path(tp) => tp,
-            _ => Err(Error::new(f.ident.span(), "Only Type::Path supported"))?,
+        let (ty, width) = match &f.ty {
+            Type::Path(tp) => (f.ty.clone(), get_bit_width(tp.path.get_ident().unwrap())),
+            Type::Array(_a) => (f.ty.clone(), None),
+            other => Err(Error::new(f.ident.span(), format!("Only Type::Path & Type::Array supported ({:?})", other)))?,
         };
 
         let mut field = Field {
             name: f.ident.clone().unwrap(), // Since we checked it's a named struct above this is ok
-            out_bits: get_bit_width(ty.path.get_ident().unwrap())?,
-            out_ident: ty.path.get_ident().unwrap().clone(),
+            out_bits: width,
             out_type: ty,
             width: get_value(attrs.iter(), f.ident.span(), Scope::Field, ATTR_WIDTH)?,
             space: get_value(attrs.iter(), f.ident.span(), Scope::Field, ATTR_SPACE)?,
@@ -536,21 +585,23 @@ fn inner(input: DeriveInput) -> Result<TokenStream, Error> {
             }
         }
 
-        if !end_set {
-            end += f.out_bits;
+        if let Some(width) = f.out_bits {
+            if !end_set {
+                end += width;
 
-            #[cfg(feature = "diagnostic-notes")]
-            Diagnostic::spanned(f.name.span().unwrap(), Level::Note, 
-                format!("Field {} inferred length: {}", 
-                    f.name, f.out_bits)).emit(); 
+                #[cfg(feature = "diagnostic-notes")]
+                Diagnostic::spanned(f.name.span().unwrap(), Level::Note, 
+                    format!("Field {} inferred length: {}", 
+                        f.name, width)).emit(); 
 
-            panic!("!end_set: {:?}", f);
-        }
+                panic!("!end_set: {:?}", f);
+            }
 
-        if end - bit > f.out_bits {
-            error_or_diagnostic(f.name.span(),
-                format!("Field width is {} bits which is more than will fit in {:?} ({} bits)", 
-                    end - bit, f.out_ident.to_string(), f.out_bits))?; 
+            if end - bit > width {
+                error_or_diagnostic(f.name.span(),
+                    format!("Field width is {} bits which is more than will fit in {:?} ({} bits)", 
+                        end - bit, f.out_type, width))?; 
+            }
         }
 
         #[cfg(feature = "diagnostic-notes")]
@@ -615,9 +666,6 @@ fn inner(input: DeriveInput) -> Result<TokenStream, Error> {
 
     pack_to_comment.insert_str(0, &format!("Pack into the provided byte slice.\n\n`bytes.len()` must be at least {}\n\n", min_len));
 
-    let mut pack_comment = format!("Pack into a new byte array. Returns [u8; {}]\n\n", min_len);
-    pack_comment += &format!("See [pack_to](struct.{}.html#method.pack_to) for layout diagram", struct_ident.to_string());
-
     let mut unpack_comment = format!("Unpack from byte slice into new instance.\n\n`bytes.len()` must be at least {}\n\n", min_len);
     unpack_comment += &format!("See [pack_to](struct.{}.html#method.pack_to) for layout diagram", struct_ident.to_string());
 
@@ -627,93 +675,63 @@ fn inner(input: DeriveInput) -> Result<TokenStream, Error> {
     let pack_bytes_len_comment = format!("Number of bytes this struct packs to/from ({})", min_len);
 
     let mut unpackers = Vec::new();
-
-    let map_typenum = |b: usize| {
-        match b {
-            7 => quote!{U7},
-            6 => quote!{U6},
-            5 => quote!{U5},
-            4 => quote!{U4},
-            3 => quote!{U3},
-            2 => quote!{U2},
-            1 => quote!{U1},
-            0 => quote!{U0},
-            _ => unreachable!(),
-        }
-    };
+    let mut packers = Vec::new();
 
     for f in explicit_fields.iter() {
-        let name = &f.name;
-        let ty = &f.out_type;
-        let sbit = map_typenum(7-(f.start_bit % 8) );
-        let ebit = map_typenum(7-(f.end_bit % 8) );
-        let width = map_typenum(f.width_bytes);
-        let sbyte = f.start_byte;
-        let ebyte = f.end_byte;
-        let endian = if f.endian == Endian::Little {
-            format_ident!("LittleEndian")
-        } else {
-            format_ident!("BigEndian")
-        };
+        let (packer, unpacker) = f.get_pack_pair();
 
-        unpackers.push(quote! {            
-            #name: <#ty as Packed<&[u8], #sbit, #ebit, #width>>::unpack::<packing::#endian>(&bytes[#sbyte..=#ebyte])?,   
-        });
+        unpackers.push(unpacker);
+        packers.push(packer);
     }
 
     let width = map_typenum(min_len);
     let result = quote!{
-        impl #struct_ident { 
-            #[doc = #pack_to_comment]
-            pub fn pack_to(&self, bytes: &mut [u8]) -> Result<(), packing::Error> {
-                if bytes.len() < #min_len {
-                    return Err(packing::Error::InsufficientBytes);
-                }
-
-                Ok(())
+        impl #struct_ident {
+            // These are defined directly on the struct to hide the complex type signature of
+            // the Packed trait. Different S, E, W and Endian don't make much sense at the
+            // top level.
+            pub const BYTES: usize = #min_len;
+            pub fn unpack(bytes: &[u8]) -> Result<Self, packing::Error> {
+                <Self as packing::Packed<packing::U7, packing::U0, packing::#width>>::unpack::<packing::LittleEndian>(bytes)
             }
+        }
 
-            #[doc = #pack_comment]
-            pub fn pack(&self) -> [u8; #min_len] {
-                let mut bytes = [0; #min_len];
-                self.pack_to(&mut bytes).unwrap();
-                bytes
-            }
+        impl packing::Packed<packing::U7, packing::U0, packing::#width> for #struct_ident {
+            type Error = packing::Error;
+
+            #[doc = #pack_bytes_len_comment]            
+            const BYTES: usize = #min_len;
 
             #[doc = #unpack_comment]
-            pub fn unpack(bytes: &[u8]) -> Result<Self, packing::Error> {
+            fn unpack<E: packing::Endian>(bytes: &[u8]) -> Result<Self, Self::Error> {
+                // TODO: allow S and E type parameters to vary
+                // use case is for example a u8 with a few flags in it could be reused at
+                // various offsets within a larger struct
                 use packing::*;
 
                 if bytes.len() < #min_len {
                     return Err(packing::Error::InsufficientBytes);
                 }
 
-                assert!(bytes.len() >= #min_len);
-
                 Ok(Self {
                     #( #unpackers )*
                 })
             }
 
-            #[doc = #unpack_to_self]
-            pub fn unpack_to_self(&mut self, bytes: &[u8]) -> Result<(), packing::Error> {
-                *self = Self::unpack(bytes)?;
+            #[doc = #pack_to_comment]
+            fn pack<En: packing::Endian>(&self, bytes: &mut [u8]) -> Result<(), Self::Error> { 
+                use packing::*;
+
+                if bytes.len() < #min_len {
+                    return Err(packing::Error::InsufficientBytes);
+                }
+
+                #( #packers )*
+
                 Ok(())
             }
         }
-        impl packing::Packed<&[u8], packing::U7, packing::U0, packing::#width> for #struct_ident {
-            #[doc = #pack_bytes_len_comment]            
-            const PACK_BYTES_LEN: usize = #min_len;
-            fn unpack<E: packing::Endian>(bytes: &[u8]) -> Result<Self, packing::Error> {
-                // TODO: allow S and E type parameters to vary
-                // use case is for example a u8 with a few flags in it could be reused at
-                // various offsets within a larger struct
-                Self::unpack(bytes)
-            }
-        }
     };
-
-    //panic!("{}", result.to_string());
 
     Ok(result.into())
 }   
