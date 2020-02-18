@@ -71,7 +71,7 @@ pub struct Md5Checksum {
 
 
 #[derive(Clone, PackedStruct)]
-#[packed_struct(endian="lsb")]
+//#[packed_struct(endian="lsb")]
 pub struct Data { 
     // Unfortunately packed struct requires a number here, a const won't work
     data: [u8; 476] 

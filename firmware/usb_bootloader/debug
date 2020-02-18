@@ -2,4 +2,4 @@
 
 ./device_reset_halt
 
-cargo +nightly run --bin blink
+cargo +nightly run --bin msc

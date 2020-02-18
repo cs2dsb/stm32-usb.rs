@@ -1,0 +1,9 @@
+[package]
+name = "packing"
+version = "0.1.0"
+authors = ["cs2dsb <cs2dsb@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+packing_codegen = { version = "0.1.0", path = "../packing_codegen" }
+typenum = "1.11.2"

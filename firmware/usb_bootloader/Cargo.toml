@@ -19,7 +19,7 @@ bitmask               = { version = "0.5.0", default-features = false }
 itm_logger            = { git = "https://github.com/cs2dsb/itm_logger.rs", default-features = false }
 #itm_logger            = { path = "../../../../rust/itm_logger", default-features = false }
 usbd-mass-storage     = { path = "../usbd_mass_storage" }
-usbd-scsi     = { path = "../usbd_scsi" }
+usbd-scsi             = { path = "../usbd_scsi" }
 
 [features]
 default = [ "itm" ]
@@ -30,3 +30,6 @@ trace-usb = [ "usbd-mass-storage/trace-all", "usbd-scsi/trace-all" ]
 codegen-units = 1 # better optimizations
 debug = true # symbols are nice and they don't increase the size on Flash
 lto = true # better optimizations
+
+[profile.dev]
+lto = true
