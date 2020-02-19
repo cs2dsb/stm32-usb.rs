@@ -34,6 +34,13 @@ impl Packed<U7, U0, U1> for Spaff {
     } 
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Packed)]
+pub enum Spiff {
+    Splurk = 0x07,
+    Splunk = 0x11,
+    Scrag = 0xFFF,
+}
+
 #[derive(Packed)]
 #[packed(big_endian, lsb0)]
 pub struct ModeSense6Command {
@@ -71,7 +78,7 @@ fn test_mode_sense_6_unpack() {
         sixteen_bytes[1],
     ];
 
-    let cmd = ModeSense6Command::unpack::<LittleEndian>(&bytes).unwrap();
+    let cmd = ModeSense6Command::unpack(&bytes).unwrap();
     //assert_eq!(op_code, cmd.op_code);
     assert_eq!(disable_block_descriptors, cmd.disable_block_descriptors);
     assert_eq!(page_control, cmd.page_control);
@@ -80,7 +87,7 @@ fn test_mode_sense_6_unpack() {
     assert_eq!(allocation_length, cmd.allocation_length);
     assert_eq!(control, cmd.control);
 
-    let mut packed = [0; ModeSense6Command::PACK_BYTES_LEN];
+    let mut packed = [0; ModeSense6Command::BYTES];
     cmd.pack::<LittleEndian>(&mut packed).unwrap();
     assert_eq!(bytes, packed);
 }

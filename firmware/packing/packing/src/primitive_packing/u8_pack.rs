@@ -1,38 +1,41 @@
 use core::{
     mem::size_of,
-    convert::{ TryFrom, Infallible },
+    convert::Infallible,
 };
 
 use crate::{
     Packed,
     Endian,
     Bit,
-    U1, IsLessOrEqual
+    U1, IsLessOrEqual, Unsigned, IsGreaterOrEqual,
 };
 
-impl<S: Bit, E: Bit> Packed<S, E, U1> for u8 
+impl<S: Bit, E: Bit, W: Unsigned> Packed<S, E, W> for u8 
 where 
-    E: IsLessOrEqual<S>
+    E: IsLessOrEqual<S>,
+    W: IsLessOrEqual<U1> + IsGreaterOrEqual<U1>
 {
     type Error = Infallible;
 
     /// Number of bytes u8 packs/unpacks to/from (1)
-    const BYTES: usize = size_of::<Self>();
+    const BYTES: usize = W::USIZE;
     fn unpack<En: Endian>(bytes: &[u8]) -> Result<Self, Self::Error> {
-        assert!(bytes.len() == size_of::<Self>());
+        assert!(bytes.len() == W::USIZE);
 
-        let mut bytes = <[u8; size_of::<Self>()]>::try_from(bytes).unwrap();
-        En::align_bytes::<S,E>(&mut bytes);
+        let mut bytes_owned = [0; size_of::<Self>()];
+        En::copy_bytes::<W>(bytes, &mut bytes_owned);
+
+        En::align_bytes::<S,E>(&mut bytes_owned);
 
         if En::IS_LITTLE {
-            Ok(u8::from_le_bytes(bytes))
+            Ok(u8::from_le_bytes(bytes_owned))
         } else {
-            Ok(u8::from_be_bytes(bytes))
+            Ok(u8::from_be_bytes(bytes_owned))
         }
     }
 
     fn pack<En: Endian>(&self, bytes: &mut [u8]) -> Result<(), Self::Error> { 
-        assert!(bytes.len() == size_of::<Self>());
+        assert!(bytes.len() == W::USIZE);
 
         let mut field_bytes = if En::IS_LITTLE {
             self.to_le_bytes()

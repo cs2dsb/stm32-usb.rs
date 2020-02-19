@@ -19,8 +19,11 @@ use syn::{
     Lit,
     NestedMeta,
     MetaNameValue,
-    DataStruct,
     Type,
+    Variant,
+    Expr,
+    ExprLit,
+    LitInt,
 };
 use std::fmt::{
     Debug,
@@ -157,6 +160,15 @@ impl Name for BitOrder {
             BitOrder::Msb0 => "Msb0",
             BitOrder::Lsb0 => "Lsb0",
         }
+    }
+}
+impl BitOrder {
+    fn map_bits(&self, (b, span): (usize, Span)) -> (usize, Span) {
+        let b = match self {
+            BitOrder::Lsb0 => 7-b,
+            BitOrder::Msb0 => b,
+        };
+        (b, span)
     }
 }
 
@@ -312,12 +324,21 @@ where
     })
 }
 
-const SUPPORTED_FIELD_TYPES: [(&str, usize); 4] = [
+const SUPPORTED_FIELD_TYPES: [(&str, usize); 6] = [
+    ("bool", 1),
     ("u8", 8),
     ("u16", 16),
     ("u32", 32),
-    ("bool", 1),
+    ("u64", 64),
+    ("u128", 128),
 ];
+
+fn get_next_bigger_type(bits: usize) -> Option<&'static str> {
+    SUPPORTED_FIELD_TYPES
+        .iter()
+        .find(|x| x.1 >= bits)
+        .map(|x| x.0)
+}
 
 fn get_bit_width(ident: &Ident) -> Option<usize> {
     for (i, size) in SUPPORTED_FIELD_TYPES.iter() {
@@ -352,8 +373,9 @@ struct ExplicitField {
     end_byte: usize,
 }
 
-fn map_typenum(b: usize) -> Ident {
-    format_ident!("U{}", b)
+fn map_typenum(b: usize) -> proc_macro2::TokenStream {
+    let ident = format_ident!("U{}", b);
+    quote! { packing::#ident }
 }
 
 impl ExplicitField {
@@ -433,28 +455,14 @@ fn error_or_diagnostic<M: core::fmt::Display>(span: Span, msg: M) -> Result<(), 
 
 }
 
-fn inner(input: DeriveInput) -> Result<TokenStream, Error> {
-    let struct_ident = input.ident.clone();
-    let struct_span = input.ident.span();
-    let DataStruct {
-        //struct_token,
-        fields,
-        ..
-    } = match input.data {
-        Data::Struct(d) => { d },
-        _ => Err(Error::new(struct_span, "Packed derive only supported on structs"))?,
-    };
-
-    let struct_attrs = flatten_attrs(&input.attrs)?;
-    let struct_endian = get_endianness(struct_attrs.iter(), struct_span, Scope::Struct, Default::default())?;
-    let bit_order = get_bit_order(struct_attrs.iter(), struct_span, Scope::Struct)?;
-    let _bytes: Bytes = get_value(struct_attrs.iter(), struct_span, Scope::Struct, ATTR_BYTES)?;
-
-    let map_bits = |(b, span): (usize, Span)| (match bit_order {
-        BitOrder::Lsb0 => 7-b,
-        BitOrder::Msb0 => b,
-    }, span);
-
+fn derive_struct(
+    struct_span: Span, 
+    struct_ident: Ident,
+    bit_order: BitOrder,
+    struct_endian: Endian,
+    fields: Fields,
+) -> Result<TokenStream, Error> 
+{
     let named_fields = if let Fields::Named(f) = fields { 
         f
     } else {
@@ -492,7 +500,7 @@ fn inner(input: DeriveInput) -> Result<TokenStream, Error> {
                 Err(Error::new(field.end_bit.0.unwrap().1, 
                     "end_bit must be between 0 and 7 (inclusive)"))?; 
             } else {
-                field.end_bit.0 = field.end_bit.0.map(map_bits);
+                field.end_bit.0 = field.end_bit.0.map(|b| bit_order.map_bits(b));
             }
         }
         if let Some(sb) = field.start_bit.value() {
@@ -500,7 +508,7 @@ fn inner(input: DeriveInput) -> Result<TokenStream, Error> {
                 Err(Error::new(field.start_bit.0.unwrap().1, 
                     "start_bit must be between 0 and 7 (inclusive)"))?; 
             } else {
-                field.start_bit.0 = field.start_bit.0.map(map_bits);
+                field.start_bit.0 = field.start_bit.0.map(|b| bit_order.map_bits(b));
             }
         }
 
@@ -517,8 +525,6 @@ fn inner(input: DeriveInput) -> Result<TokenStream, Error> {
         }
 
         fields.push(field);
-
-        //Diagnostic::spanned(f.ident.span().unwrap(), Level::Note, format!("Field: {:?}", field)).emit(); 
     }
 
     let mut pack_to_comment = "|byte|".to_string();
@@ -692,11 +698,14 @@ fn inner(input: DeriveInput) -> Result<TokenStream, Error> {
             // top level.
             pub const BYTES: usize = #min_len;
             pub fn unpack(bytes: &[u8]) -> Result<Self, packing::Error> {
-                <Self as packing::Packed<packing::U7, packing::U0, packing::#width>>::unpack::<packing::LittleEndian>(bytes)
+                <Self as packing::Packed<packing::U7, packing::U0, #width>>::unpack::<packing::LittleEndian>(bytes)
+            }
+            pub fn pack(&self, bytes: &mut [u8]) -> Result<(), packing::Error> {
+                <Self as packing::Packed<packing::U7, packing::U0, #width>>::pack::<packing::LittleEndian>(&self, bytes)
             }
         }
 
-        impl packing::Packed<packing::U7, packing::U0, packing::#width> for #struct_ident {
+        impl packing::Packed<packing::U7, packing::U0, #width> for #struct_ident {
             type Error = packing::Error;
 
             #[doc = #pack_bytes_len_comment]            
@@ -707,7 +716,6 @@ fn inner(input: DeriveInput) -> Result<TokenStream, Error> {
                 // TODO: allow S and E type parameters to vary
                 // use case is for example a u8 with a few flags in it could be reused at
                 // various offsets within a larger struct
-                use packing::*;
 
                 if bytes.len() < #min_len {
                     return Err(packing::Error::InsufficientBytes);
@@ -734,4 +742,113 @@ fn inner(input: DeriveInput) -> Result<TokenStream, Error> {
     };
 
     Ok(result.into())
+}
+
+fn derive_enum(
+    struct_span: Span, 
+    struct_ident: Ident,
+    bit_order: BitOrder,
+    struct_endian: Endian,
+    variants: Vec<Variant>,
+) -> Result<TokenStream, Error> 
+{
+    let mut max_discriminant = 0;
+
+    let mut parsed_variants = Vec::new();
+
+    for v in variants.iter() {
+        let ident = v.ident.clone();
+        if v.fields != Fields::Unit {
+            Err(Error::new(ident.span(), "Only unit variants supported by Packed derive"))?;
+        }
+
+        if let Some((_, Expr::Lit(ExprLit { lit, .. }))) = v.discriminant.as_ref() {
+            let value = lit_to_usize(lit)?;
+            max_discriminant = max_discriminant.max(value);
+
+            parsed_variants.push((ident.clone(), value));
+        } else {
+            Err(Error::new(ident.span(), "Literal expression enum discriminant required for Packed derive (e.g. Variant = 0x1)"))?;
+        }
+    }
+
+    let mut min_width = 1;
+    while max_discriminant > (2_usize.pow(min_width * 8) - 1) {
+        min_width += 1;
+    }
+
+    let type_ = get_next_bigger_type(min_width as usize * 8)
+        .ok_or(Error::new(struct_span, format!("Failed to find field big enough to fit {} byte enum", min_width)))?;
+    let width = map_typenum(min_width as usize);
+
+    let ty = format_ident!("{}", type_);
+
+    let mut match_to = Vec::new();
+    let mut match_from = Vec::new();
+
+    for v in parsed_variants.iter() {
+        let name = &v.0;
+        let num_t = LitInt::new(&format!("{}{}", &v.1, ty), name.span());
+        match_to.push(quote!  { #num_t => Ok(#struct_ident::#name), });
+        match_from.push(quote!{ #struct_ident::#name => #num_t, });
+    }
+
+    let max_w = map_typenum(min_width as usize);
+
+    let mut results = Vec::new();
+
+    let bit_restriction = if min_width == 1 {
+        quote! { E: packing::IsLessOrEqual<S>, }
+    } else {
+        quote! {}
+    };
+
+    results.push(quote!{        
+        impl<S: packing::Bit, E: packing::Bit, W: packing::Unsigned> Packed<S, E, W> for #struct_ident 
+        where
+            #bit_restriction
+            W: packing::IsLessOrEqual<#max_w> + packing::IsGreaterOrEqual<#width> + packing::IsGreaterOrEqual<packing::U1>
+        {
+            type Error = packing::Error;
+
+            const BYTES: usize = W::USIZE;
+            fn unpack<En: packing::Endian>(bytes: &[u8]) -> Result<Self, Self::Error> {
+                assert!(bytes.len() == W::USIZE);
+                let num = <#ty as packing::Packed<S, E, W>>::unpack::<En>(bytes)?;
+                match num {
+                    #( #match_to )*
+                    _ => Err(packing::Error::InvalidEnumDiscriminant),
+                }
+            }
+
+            fn pack<En: packing::Endian>(&self, bytes: &mut [u8]) -> Result<(), Self::Error> { 
+                assert!(bytes.len() == W::USIZE);
+                let num = match self {
+                    #( #match_from )*
+                };
+                Ok(<#ty as packing::Packed<S, E, W>>::pack::<En>(&num, bytes)?)
+            } 
+        }
+    });
+
+    Ok(quote! {
+        #( #results )*
+    }.into())
+}
+
+fn inner(input: DeriveInput) -> Result<TokenStream, Error> {
+    let struct_ident = input.ident.clone();
+    let struct_span = input.ident.span();
+
+    let struct_attrs = flatten_attrs(&input.attrs)?;
+    let struct_endian = get_endianness(struct_attrs.iter(), struct_span, Scope::Struct, Default::default())?;
+    let bit_order = get_bit_order(struct_attrs.iter(), struct_span, Scope::Struct)?;
+    //TODO: use this to check calculated length
+    let _bytes: Bytes = get_value(struct_attrs.iter(), struct_span, Scope::Struct, ATTR_BYTES)?;
+
+    match input.data {
+        Data::Struct(d) => derive_struct(struct_span, struct_ident, bit_order, struct_endian, d.fields),
+        Data::Enum(e) => derive_enum(struct_span, struct_ident, bit_order, struct_endian, e.variants.into_iter().collect()),
+        other => Err(Error::new(struct_span, format!("Packed derive only supported on structs ({:?})", other)))?,
+    }
 }   

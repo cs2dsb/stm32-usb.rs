@@ -1,7 +1,7 @@
-use packed_struct_codegen::PrimitiveEnum;
+use packing::Packed;
 
 /// The status of a command
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PrimitiveEnum)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
 pub enum CommandStatus {
     /// Ok, command completed successfully
     CommandOk = 0x00,

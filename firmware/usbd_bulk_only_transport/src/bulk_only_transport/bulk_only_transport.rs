@@ -1,8 +1,3 @@
-use packed_struct::{
-    PackedStruct,
-    PackedStructSlice,
-    PackingError,
-};
 use usb_device::class_prelude::*;
 use usb_device::{
     Result as UsbResult,
@@ -12,6 +7,8 @@ use usb_device::{
     },
 };
 pub use UsbError::WouldBlock;
+
+use packing::Error as PackingError;
 
 use usbd_mass_storage::{
     MscClass,
@@ -433,7 +430,7 @@ impl<B: UsbBus> BulkOnlyTransport<'_, B> {
     }
 
     fn pack_csw(&mut self) {
-        self.command_status_wrapper.pack_to_slice(&mut self.buffer[..CommandStatusWrapper::BYTES]).unwrap();
+        self.command_status_wrapper.pack(&mut self.buffer[..CommandStatusWrapper::BYTES]).unwrap();
         self.buffer_i = CommandStatusWrapper::BYTES;
         self.data_i = 0;
         self.command_status_wrapper.data_residue = self.buffer_i as u32;
