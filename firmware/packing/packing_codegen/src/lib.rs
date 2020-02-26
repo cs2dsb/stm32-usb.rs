@@ -379,25 +379,65 @@ fn map_typenum(b: usize) -> proc_macro2::TokenStream {
 }
 
 impl ExplicitField {
-    fn get_pack_pair(&self) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
-        let name = &self.name;
-        let ty = &self.out_type;
+    fn get_unpacker(&self) -> proc_macro2::TokenStream {
+        let sbit = 7-(self.start_bit % 8);
+        let ebit = 7-(self.end_bit % 8);
+        let sbyte = self.start_byte;
+        let ebyte = self.end_byte;
+
+        let aligned = sbit == 7 && ebit == 0;
+        let unpacked_width = (self.end_bit - self.start_bit) / 8 + 1;
+
         let sbit = map_typenum(7-(self.start_bit % 8) );
         let ebit = map_typenum(7-(self.end_bit % 8) );
-        let width = map_typenum(self.width_bytes);
+        let endian = self.endian();
+        let ty = &self.out_type;
+
+        (quote! {{
+            let mut field_bytes = [0; #unpacked_width];
+            <#endian as packing::Endian>::align_field_bits::<#sbit, #ebit>(&bytes[#sbyte..=#ebyte], &mut field_bytes);
+            <#ty as packing::PackedBytes<[u8; #unpacked_width]>>::from_bytes::<#endian>(field_bytes)?
+        }}).into()
+    }
+    fn get_packer(&self) -> proc_macro2::TokenStream {
+        let sbyte = self.start_byte;
+        let ebyte = self.end_byte;
+
+        //let packed_width = self.width_bytes;
+        let unpacked_width = (self.end_bit - self.start_bit) / 8 + 1;
+
+        let sbit = map_typenum(7-(self.start_bit % 8) );
+        let ebit = map_typenum(7-(self.end_bit % 8) );
+        let endian = self.endian();
+        let ty = &self.out_type;
+        let name = &self.name;
+
+        (quote! {{
+            let field_bytes = <#ty as packing::PackedBytes<[u8; #unpacked_width]>>::to_bytes::<#endian>(&self.#name)?;
+            <#endian as packing::Endian>::restore_field_bits::<#sbit, #ebit>(&field_bytes, &mut bytes[#sbyte..=#ebyte]);
+        }}).into()
+    }
+
+    fn endian(&self) -> proc_macro2::TokenStream {
+        if self.endian == Endian::Little {
+            quote! { packing::LittleEndian }
+        } else {
+            quote! { packing::BigEndian }
+        }
+    }
+
+    fn get_pack_pair(&self) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
+        let unpacker = self.get_unpacker();
+        let packer = self.get_packer();
+        let name = &self.name;
         let width_bytes = self.width_bytes;
         let sbyte = self.start_byte;
         let ebyte = self.end_byte;
-        let endian = if self.endian == Endian::Little {
-            format_ident!("LittleEndian")
-        } else {
-            format_ident!("BigEndian")
-        };
 
         match &self.out_type {
             Type::Path(_p) => (
-                quote! { <#ty as Packed<#sbit, #ebit, #width>>::pack::<packing::#endian>(&self.#name, &mut bytes[#sbyte..=#ebyte])?; },
-                quote! { #name: <#ty as Packed<#sbit, #ebit, #width>>::unpack::<packing::#endian>(&bytes[#sbyte..=#ebyte])?, },
+                quote! { #packer; },
+                quote! { #name: #unpacker, },
             ),
             Type::Array(a) => {
                 match &*a.elem {
@@ -512,14 +552,23 @@ fn derive_struct(
             }
         }
 
+        if let (Some(sby), Some(eby)) = (field.start_byte.value(), field.end_byte.value()) {
+            if sby > eby {
+                Err(Error::new(field.start_byte.0.unwrap().1,
+                    "start_byte must be <= end_byte"))?
+            }
+        }
+
         if let (Some(sb), Some(eb)) = (field.start_bit.value(), field.end_bit.value()) {
-            if sb > eb {
-                if bit_order == BitOrder::Lsb0 {
-                    Err(Error::new(field.start_bit.0.unwrap().1,
-                        "start_bit must be >= end_bit when using lsb0 bit order"))?;
-                } else {
-                    Err(Error::new(field.start_bit.0.unwrap().1,
-                        "start_bit must be <= end_bit when using msb0 bit order"))?;
+            if let (Some(sby), Some(eby)) = (field.start_byte.value(), field.end_byte.value()) {
+                if sb > eb && sby == eby {
+                    if bit_order == BitOrder::Lsb0 {
+                        Err(Error::new(field.start_bit.0.unwrap().1,
+                            "start_bit < end_bit && start_byte == end_byte is not valid when using lsb0 bit order"))?;
+                    } else {
+                        Err(Error::new(field.start_bit.0.unwrap().1,
+                            "start_bit > end_bit && start_byte == end_byte is not valid when using msb0 bit order"))?;
+                    }
                 }
             }
         }
@@ -619,15 +668,17 @@ fn derive_struct(
                 f.end_bit.value().unwrap(),
             )).emit();
 
+        let start_byte = bit / 8;
+        let end_byte = end / 8;
         explicit_fields.push(ExplicitField {
             name: f.name,
             out_type: f.out_type,
             start_bit: bit,
             end_bit: end,
             endian: f.endian,
-            width_bytes: (end - bit) / 8 + 1,
-            start_byte: bit / 8,
-            end_byte: end / 8,
+            width_bytes: end_byte - start_byte + 1,
+            start_byte,
+            end_byte,
         });
 
         bit = end;
@@ -678,7 +729,7 @@ fn derive_struct(
     let mut unpack_to_self = format!("Unpack from byte slice into self.\n\n`bytes.len()` must be at least {}\n\n", min_len);
     unpack_to_self += &format!("See [pack_to](struct.{}.html#method.pack_to) for layout diagram", struct_ident.to_string());
 
-    let pack_bytes_len_comment = format!("Number of bytes this struct packs to/from ({})", min_len);
+    //let pack_bytes_len_comment = format!("Number of bytes this struct packs to/from ({})", min_len);
 
     let mut unpackers = Vec::new();
     let mut packers = Vec::new();
@@ -690,33 +741,27 @@ fn derive_struct(
         packers.push(packer);
     }
 
-    let width = map_typenum(min_len);
     let result = quote!{
-        impl #struct_ident {
-            // These are defined directly on the struct to hide the complex type signature of
-            // the Packed trait. Different S, E, W and Endian don't make much sense at the
-            // top level.
-            pub const BYTES: usize = #min_len;
-            pub fn unpack(bytes: &[u8]) -> Result<Self, packing::Error> {
-                <Self as packing::Packed<packing::U7, packing::U0, #width>>::unpack::<packing::LittleEndian>(bytes)
-            }
-            pub fn pack(&self, bytes: &mut [u8]) -> Result<(), packing::Error> {
-                <Self as packing::Packed<packing::U7, packing::U0, #width>>::pack::<packing::LittleEndian>(&self, bytes)
-            }
-        }
-
-        impl packing::Packed<packing::U7, packing::U0, #width> for #struct_ident {
+        impl packing::Packed for #struct_ident {
             type Error = packing::Error;
-
-            #[doc = #pack_bytes_len_comment]            
+            /// Number of bytes this struct packs to/from
             const BYTES: usize = #min_len;
+            fn pack(&self, bytes: &mut [u8]) -> Result<(), Self::Error> {
+                if bytes.len() < #min_len {
+                    return Err(packing::Error::InsufficientBytes);
+                }
 
-            #[doc = #unpack_comment]
-            fn unpack<E: packing::Endian>(bytes: &[u8]) -> Result<Self, Self::Error> {
-                // TODO: allow S and E type parameters to vary
-                // use case is for example a u8 with a few flags in it could be reused at
-                // various offsets within a larger struct
+                // TODO: Remove this once `Endian::restore_field_bits` clears bits inside the fields
+                //       currently for non-aligned fields it will be ORing into a dirty buffer unless
+                //       consumer clears before calling this.
+                for b in bytes[0..#min_len].iter_mut() { *b = 0 }
 
+                
+                #( #packers )*
+
+                Ok(())
+            }
+            fn unpack(bytes: &[u8]) -> Result<Self, Self::Error> {
                 if bytes.len() < #min_len {
                     return Err(packing::Error::InsufficientBytes);
                 }
@@ -724,19 +769,6 @@ fn derive_struct(
                 Ok(Self {
                     #( #unpackers )*
                 })
-            }
-
-            #[doc = #pack_to_comment]
-            fn pack<En: packing::Endian>(&self, bytes: &mut [u8]) -> Result<(), Self::Error> { 
-                use packing::*;
-
-                if bytes.len() < #min_len {
-                    return Err(packing::Error::InsufficientBytes);
-                }
-
-                #( #packers )*
-
-                Ok(())
             }
         }
     };
@@ -748,7 +780,7 @@ fn derive_enum(
     struct_span: Span, 
     struct_ident: Ident,
     bit_order: BitOrder,
-    struct_endian: Endian,
+    _struct_endian: Endian,
     variants: Vec<Variant>,
 ) -> Result<TokenStream, Error> 
 {
@@ -793,8 +825,6 @@ fn derive_enum(
         match_from.push(quote!{ #struct_ident::#name => #num_t, });
     }
 
-    let max_w = map_typenum(min_width as usize);
-
     let mut results = Vec::new();
 
     let bit_restriction = if min_width == 1 {
@@ -803,32 +833,24 @@ fn derive_enum(
         quote! {}
     };
 
-    results.push(quote!{        
-        impl<S: packing::Bit, E: packing::Bit, W: packing::Unsigned> Packed<S, E, W> for #struct_ident 
-        where
-            #bit_restriction
-            W: packing::IsLessOrEqual<#max_w> + packing::IsGreaterOrEqual<#width> + packing::IsGreaterOrEqual<packing::U1>
-        {
+    results.push(quote!{ 
+        impl packing::PackedBytes<[u8; 1]> for #struct_ident {
             type Error = packing::Error;
-
-            const BYTES: usize = W::USIZE;
-            fn unpack<En: packing::Endian>(bytes: &[u8]) -> Result<Self, Self::Error> {
-                assert!(bytes.len() == W::USIZE);
-                let num = <#ty as packing::Packed<S, E, W>>::unpack::<En>(bytes)?;
+            fn to_bytes<En: packing::Endian>(&self) -> Result<[u8; 1], Self::Error> {
+                let num = match self {
+                    #( #match_from )*
+                };
+                Ok(<#ty as packing::PackedBytes<[u8; 1]>>::to_bytes::<En>(&num)?)
+            }
+            fn from_bytes<En: packing::Endian>(bytes: [u8; 1]) -> Result<Self, Self::Error> {
+                let num = <#ty as packing::PackedBytes<[u8; 1]>>::from_bytes::<En>(bytes)?;
                 match num {
                     #( #match_to )*
                     _ => Err(packing::Error::InvalidEnumDiscriminant),
                 }
             }
-
-            fn pack<En: packing::Endian>(&self, bytes: &mut [u8]) -> Result<(), Self::Error> { 
-                assert!(bytes.len() == W::USIZE);
-                let num = match self {
-                    #( #match_from )*
-                };
-                Ok(<#ty as packing::Packed<S, E, W>>::pack::<En>(&num, bytes)?)
-            } 
         }
+    
     });
 
     Ok(quote! {

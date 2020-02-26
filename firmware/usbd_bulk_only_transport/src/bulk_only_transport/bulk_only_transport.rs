@@ -8,7 +8,10 @@ use usb_device::{
 };
 pub use UsbError::WouldBlock;
 
-use packing::Error as PackingError;
+use packing::{
+    Error as PackingError,
+    Packed,
+};
 
 use usbd_mass_storage::{
     MscClass,
