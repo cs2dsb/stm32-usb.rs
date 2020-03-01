@@ -1,7 +1,6 @@
-use packed_struct_codegen::PackedStruct;
-use packed_struct::PackedStruct;
+use packing::Packed;
 use crate::scsi::{
-    packing::{ ResizeSmaller, ParsePackedStruct },
+    packing::ParsePackedStruct,
     commands::Control,
 };
 
@@ -12,17 +11,18 @@ pub struct ReadXCommand {
 }
 
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PackedStruct)]
-#[packed_struct(endian="msb", bit_numbering="msb0")]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
+#[packed(big_endian, lsb0)]
 pub struct Read6Command {
-    #[packed_field(bits="3..=23")]
+    #[pkd(4, 0, 0, 2)]
     pub lba: u32,
-    #[packed_field(bits="24..=31")]
+    #[pkd(7, 0, 3, 3)]
     pub transfer_length: u8,
-    #[packed_field(bits="32..=39")]
+    #[pkd(7, 0, 4, 4)]
     pub control: Control,
 }
-impl<A: ResizeSmaller<[u8; Read6Command::BYTES]>>  ParsePackedStruct<A, [u8; Read6Command::BYTES]> for Read6Command {}
+impl ParsePackedStruct for Read6Command {}
+
 impl From<Read6Command> for ReadXCommand {
     fn from(r: Read6Command) -> Self {
         Self {
@@ -33,27 +33,34 @@ impl From<Read6Command> for ReadXCommand {
 }
 
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PackedStruct)]
-#[packed_struct(endian="msb", bit_numbering="msb0")]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
+#[packed(big_endian, lsb0)]
 pub struct Read10Command {
-    #[packed_field(bits="0..3")]
+    #[pkd(7, 5, 0, 0)]
     pub rd_protect: u8,
-    #[packed_field(bits="3")]
+
+    #[pkd(4, 4, 0, 0)]
     pub dpo: bool,
-    #[packed_field(bits="4")]
+
+    #[pkd(3, 3, 0, 0)]
     pub fua: bool,
-    #[packed_field(bits="5")]
-    pub rarc: bool,
-    #[packed_field(bits="8..40")]
+
+    #[pkd(1, 1, 0, 0)]
+    pub fua_nv: bool,
+
+    #[pkd(7, 0, 1, 4)]
     pub lba: u32,
-    #[packed_field(bits="43..48")]
+
+    #[pkd(4, 0, 5, 5)]
     pub group_number: u8, 
-    #[packed_field(bits="48..64")]
+
+    #[pkd(7, 0, 6, 7)]
     pub transfer_length: u16,
-    #[packed_field(bits="64..72")]
+
+    #[pkd(7, 0, 8, 8)]
     pub control: Control,
 }
-impl<A: ResizeSmaller<[u8; Read10Command::BYTES]>>  ParsePackedStruct<A, [u8; Read10Command::BYTES]> for Read10Command {}
+impl ParsePackedStruct for Read10Command {}
 impl From<Read10Command> for ReadXCommand {
     fn from(r: Read10Command) -> Self {
         Self {
@@ -64,27 +71,34 @@ impl From<Read10Command> for ReadXCommand {
 }
 
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PackedStruct)]
-#[packed_struct(endian="msb", bit_numbering="msb0")]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
+#[packed(big_endian, lsb0)]
 pub struct Read12Command {
-    #[packed_field(bits="0..3")]
+    #[pkd(7, 5, 0, 0)]
     pub rd_protect: u8,
-    #[packed_field(bits="3..4")]
+
+    #[pkd(4, 4, 0, 0)]
     pub dpo: bool,
-    #[packed_field(bits="4..5")]
+
+    #[pkd(3, 3, 0, 0)]
     pub fua: bool,
-    #[packed_field(bits="5..6")]
-    pub rarc: bool,
-    #[packed_field(bits="8..40")]
+
+    #[pkd(1, 1, 0, 0)]
+    pub fua_nv: bool,
+
+    #[pkd(7, 0, 1, 4)]
     pub lba: u32,
-    #[packed_field(bits="40..72")]
+
+    #[pkd(7, 0, 5, 8)]
     pub transfer_length: u32,
-    #[packed_field(bits="74..79")]
+
+    #[pkd(4, 0, 9, 9)]
     pub group_number: u8,
-    #[packed_field(bits="79..87")]
-    pub control: Control
+
+    #[pkd(7, 0, 10, 10)]
+    pub control: Control,
 }
-impl<A: ResizeSmaller<[u8; Read12Command::BYTES]>>  ParsePackedStruct<A, [u8; Read12Command::BYTES]> for Read12Command {}
+impl ParsePackedStruct for Read12Command {}
 impl From<Read12Command> for ReadXCommand {
     fn from(r: Read12Command) -> Self {
         Self {

@@ -1,6 +1,6 @@
-use packed_struct_codegen::PrimitiveEnum;
+use packing::Packed;
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PrimitiveEnum)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
 pub enum ResponseDataFormat {
     /// A RESPONSE DATA FORMAT field set to 2h indicates that the standard INQUIRY data
     Standard = 0x2,

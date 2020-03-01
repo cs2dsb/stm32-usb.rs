@@ -1,3 +1,4 @@
+/*
 use codegen::asc_list_to_enum;
 
 asc_list_to_enum!{
@@ -9,3 +10,4 @@ impl Default for AdditionalSenseCode {
         AdditionalSenseCode::NoAdditionalSenseInformation
     }
 }
+*/

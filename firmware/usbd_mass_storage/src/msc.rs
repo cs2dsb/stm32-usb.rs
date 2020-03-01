@@ -2,7 +2,6 @@ use usb_device::{
     class_prelude::*,
     Result,
 };
-use packed_struct::PrimitiveEnum;
 
 use crate::{
     logging::*,
@@ -13,7 +12,7 @@ use crate::{
 /// This should be used as `device_class` when building `UsbDevice`
 ///
 /// Section 4.3 [USB Bulk Only Transport Spec](https://www.usb.org/document-library/mass-storage-bulk-only-10)
-pub const USB_CLASS_MSC: u8                = 0x08;
+pub const USB_CLASS_MSC: u8 = 0x08;
 
 /// # USB Mass Storage Class Device
 ///

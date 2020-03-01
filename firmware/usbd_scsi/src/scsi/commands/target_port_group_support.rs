@@ -1,6 +1,6 @@
-use packed_struct_codegen::PrimitiveEnum;
+use packing::Packed;
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PrimitiveEnum)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
 pub enum TargetPortGroupSupport {
     //The logical unit does not support asymmetric logical unit access or supports a form of asymmetric access that is vendor specific. Neither the REPORT TARGET GROUPS nor the SET TARGET PORT GROUPS commands is supported.
     Unsupported = 0b00,

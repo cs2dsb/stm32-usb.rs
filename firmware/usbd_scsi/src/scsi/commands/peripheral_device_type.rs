@@ -1,6 +1,6 @@
-use packed_struct_codegen::PrimitiveEnum;
+use packing::Packed;
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PrimitiveEnum)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
 pub enum PeripheralDeviceType {
     /// Direct access block device (e.g., magnetic disk)
     DirectAccessBlock = 0x00,

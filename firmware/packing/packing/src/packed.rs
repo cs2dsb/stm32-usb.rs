@@ -1,5 +1,11 @@
 use crate::Endian;
 
+
+pub trait PackedSize where Self: Sized {
+    /// Number of bytes this struct packs to/from
+    const BYTES: usize;
+}
+
 /// Trait that enables endian aware conversion to/from bytes for packable types
 /// 
 /// Mostly for primitives. Currently expected to accept/return arrays by proc macro.
@@ -7,11 +13,8 @@ use crate::Endian;
 /// performed exactly the same as manual bit shifting or various other shenanigans.
 ///
 /// TODO: Above perf statement likely only holds true up to a certain size. Currently
-/// nested structs and packing/unpacking them to/from &mut [u8] is not supported. For
-/// the use case that this macro was created (USB and SCSI packets) nested structs is
-/// not useful but maybe there is some usecase for it. Leave it as is for now but open
-/// to rejigging if the need arises.
-pub trait PackedBytes<B> where Self: Sized {
+/// nested structs and packing/unpacking them to/from &mut [u8] is not supported. 
+pub trait PackedBytes<B>: PackedSize {
     type Error;
     fn to_bytes<En: Endian>(&self) -> Result<B, Self::Error>;
     fn from_bytes<En: Endian>(bytes: B) -> Result<Self, Self::Error>;
@@ -27,10 +30,8 @@ pub trait PackedBytes<B> where Self: Sized {
 ///
 /// Allowing arbitray field alignment should be zero-cost as the field definitions
 /// will all be constants.
-pub trait Packed where Self: Sized {
+pub trait Packed: PackedSize {
     type Error;
-    /// Number of bytes this struct packs to/from
-    const BYTES: usize;
     fn pack(&self, bytes: &mut [u8]) -> Result<(), Self::Error>;
     fn unpack(bytes: &[u8]) -> Result<Self, Self::Error>;
 }

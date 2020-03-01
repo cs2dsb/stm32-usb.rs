@@ -1,49 +1,16 @@
-use packed_struct::PackedStruct;
-use super::Error;
+use packing::Packed;
 
-pub trait Len {
-    fn len() -> usize;
-}
+use crate::scsi::Error;
 
-macro_rules! define_len {
-    ($($len: literal$(,)?)+) => {
-        $(
-            impl Len for [u8; $len] {
-                fn len() -> usize { $len }
-            }
-        )+
-    }
-}
-
-define_len!(512, 255, 31, 15, 11, 9, 5);
-
-pub trait ResizeSmaller<B: Len>: Len {
-    fn resize(&self) -> &B {
-        assert!(Self::len() >= B::len());
-        unsafe { &*(self as *const _ as *const _) }
-    }
-}
-
-macro_rules! define_resize_smaller {
-    ($from: literal, $($to: literal$(,)?)+ ) => {
-        $(
-            impl ResizeSmaller<[u8; $to]> for [u8; $from] {}
-        )+
-    }
-}
-
-define_resize_smaller!(512, 31, 15, 11, 9, 5);
-define_resize_smaller!(255, 31, 15, 11, 9, 5);
-define_resize_smaller!(15, 11, 9, 5);
-
-pub trait ParsePackedStruct<A: ResizeSmaller<B>, B: Len>: PackedStruct<B> 
+pub trait ParsePackedStruct: Packed 
+where
+    Error: From<<Self as Packed>::Error>,
 {
-    fn parse(data: &A) -> Result<Self, Error> {
-        let mut ret = Self::unpack(data.resize())?;
+    fn parse(data: &[u8]) -> Result<Self, Error> {
+        let mut ret = Self::unpack(data)?;
         ret.verify()?;
         Ok(ret)
     }
-
     fn verify(&mut self) -> Result<(), Error> {
         Ok(())
     }

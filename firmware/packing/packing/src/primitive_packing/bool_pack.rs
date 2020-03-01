@@ -1,19 +1,24 @@
 use crate::{
     Endian,
     PackedBytes,
+    PackedSize,
 };
 use core::convert::Infallible;
 
-impl PackedBytes<[u8; 1]> for bool {
+impl PackedSize for bool {
+    const BYTES: usize = 1;
+}
+
+impl PackedBytes<[u8; Self::BYTES]> for bool {
     type Error = Infallible;
-    fn to_bytes<En: Endian>(&self) -> Result<[u8; 1], Self::Error> {
+    fn to_bytes<En: Endian>(&self) -> Result<[u8; Self::BYTES], Self::Error> {
         Ok(if *self {
            [1]
         } else {
            [0]
         })
     }
-    fn from_bytes<En: Endian>(bytes: [u8; 1]) -> Result<Self, Self::Error> {
+    fn from_bytes<En: Endian>(bytes: [u8; Self::BYTES]) -> Result<Self, Self::Error> {
         Ok(bytes[0] == 1)
     }
 }

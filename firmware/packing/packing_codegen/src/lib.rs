@@ -47,10 +47,12 @@ const ATTR_START_BYTE: &str = "start_byte";
 const ATTR_END_BYTE: &str = "end_byte";
 const ATTR_START_BIT: &str = "start_bit";
 const ATTR_END_BIT: &str = "end_bit";
+const PACKED_ATTR: &str = "packed";
+const PKD_ATTR: &str = "pkd";
 
 
 /// Derive for [Packed](../packing/trait.Packed.html)
-#[proc_macro_derive(Packed, attributes(packed))]
+#[proc_macro_derive(Packed, attributes(packed, pkd))]
 pub fn packed_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     inner(input)
@@ -87,16 +89,37 @@ fn flatten_attrs(attrs: &Vec<Attribute>) -> Result<Vec<Attr>, Error> {
     for a in attrs.iter() {
         match a.parse_meta() {
             Ok(Meta::List(l)) => {
-                for n in l.nested.iter() {
-                    ret.push(match n {
-                        NestedMeta::Meta(Meta::Path(p)) => 
-                            Attr::Flag { name: get_single_segment(p)?, span: p.span() },
-                        NestedMeta::Meta(Meta::NameValue(MetaNameValue { path, lit, .. })) => 
-                            Attr::Value { name: get_single_segment(path)?, value: lit.clone(), span: path.span() },
-                        NestedMeta::Lit(l) => 
-                            Attr::Lit { value: l.clone(), span: a.span() },
-                        y => panic!("y: {:?}", y),
-                    });
+                if l.path.is_ident(PACKED_ATTR) {
+                    for n in l.nested.iter() {
+                        ret.push(match n {
+                            NestedMeta::Meta(Meta::Path(p)) => 
+                                Attr::Flag { name: get_single_segment(p)?, span: p.span() },
+                            NestedMeta::Meta(Meta::NameValue(MetaNameValue { path, lit, .. })) => 
+                                Attr::Value { name: get_single_segment(path)?, value: lit.clone(), span: path.span() },
+                            NestedMeta::Lit(l) => 
+                                Attr::Lit { value: l.clone(), span: a.span() },
+                            y => panic!("y: {:?}", y),
+                        });
+                    }
+                } else if l.path.is_ident(PKD_ATTR) {
+                    if l.nested.len() != 4 {
+                        Err(Error::new(l.path.span(), "pkd abbreviated attribute expects exactly 4 values: #[pkd(<start_bit>, <end_bit>, <start_byte>, <end_byte>)]"))?;
+                    }
+
+                    let names = vec!["start_bit", "end_bit", "start_byte", "end_byte"];
+                    let values: Vec<&NestedMeta> = l.nested.iter().collect();
+                    for i in 0..4 {
+                        let v = values[i];
+                        if let NestedMeta::Lit(lit) = v {
+                            ret.push(Attr::Value {
+                                name: Ident::new(names[i], lit.span()),
+                                value: lit.clone(),
+                                span: lit.span(),
+                            });
+                        } else {
+                            Err(Error::new(l.path.span(), "pkd abbreviated attribute expects exactly 4 values: #[pkd(<start_bit>, <end_bit>, <start_byte>, <end_byte>)]"))?;
+                        }
+                    }
                 }
             },
             // #[packed] with no extra attributes
@@ -123,6 +146,14 @@ trait TryFrom<T> {
 enum Endian {
     Big,
     Little,
+}
+impl Endian {
+    fn to_packing_endian_tokenstream(&self) -> proc_macro2::TokenStream {
+        match self {
+            Endian::Little => quote! { packing::LittleEndian },
+            Endian::Big => quote! { packing::BigEndian },
+        }
+    }
 }
 impl Default for Endian {
     fn default() -> Endian {
@@ -380,13 +411,8 @@ fn map_typenum(b: usize) -> proc_macro2::TokenStream {
 
 impl ExplicitField {
     fn get_unpacker(&self) -> proc_macro2::TokenStream {
-        let sbit = 7-(self.start_bit % 8);
-        let ebit = 7-(self.end_bit % 8);
         let sbyte = self.start_byte;
         let ebyte = self.end_byte;
-
-        let aligned = sbit == 7 && ebit == 0;
-        let unpacked_width = (self.end_bit - self.start_bit) / 8 + 1;
 
         let sbit = map_typenum(7-(self.start_bit % 8) );
         let ebit = map_typenum(7-(self.end_bit % 8) );
@@ -394,36 +420,31 @@ impl ExplicitField {
         let ty = &self.out_type;
 
         (quote! {{
-            let mut field_bytes = [0; #unpacked_width];
+            const W: usize = <#ty as packing::PackedSize>::BYTES;
+            let mut field_bytes = [0; W];
             <#endian as packing::Endian>::align_field_bits::<#sbit, #ebit>(&bytes[#sbyte..=#ebyte], &mut field_bytes);
-            <#ty as packing::PackedBytes<[u8; #unpacked_width]>>::from_bytes::<#endian>(field_bytes)?
+            <#ty as packing::PackedBytes<[u8; W]>>::from_bytes::<#endian>(field_bytes)?
         }}).into()
     }
     fn get_packer(&self) -> proc_macro2::TokenStream {
         let sbyte = self.start_byte;
         let ebyte = self.end_byte;
 
-        //let packed_width = self.width_bytes;
-        let unpacked_width = (self.end_bit - self.start_bit) / 8 + 1;
-
         let sbit = map_typenum(7-(self.start_bit % 8) );
         let ebit = map_typenum(7-(self.end_bit % 8) );
         let endian = self.endian();
         let ty = &self.out_type;
         let name = &self.name;
-
+        
         (quote! {{
-            let field_bytes = <#ty as packing::PackedBytes<[u8; #unpacked_width]>>::to_bytes::<#endian>(&self.#name)?;
+            const W: usize = <#ty as packing::PackedSize>::BYTES;
+            let field_bytes = <#ty as packing::PackedBytes<[u8; W]>>::to_bytes::<#endian>(&self.#name)?;
             <#endian as packing::Endian>::restore_field_bits::<#sbit, #ebit>(&field_bytes, &mut bytes[#sbyte..=#ebyte]);
         }}).into()
     }
 
     fn endian(&self) -> proc_macro2::TokenStream {
-        if self.endian == Endian::Little {
-            quote! { packing::LittleEndian }
-        } else {
-            quote! { packing::BigEndian }
-        }
+        self.endian.to_packing_endian_tokenstream()
     }
 
     fn get_pack_pair(&self) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
@@ -642,7 +663,8 @@ fn derive_struct(
 
         if let Some(width) = f.out_bits {
             if !end_set {
-                end += width;
+                //TODO:
+                //end += width;
 
                 #[cfg(feature = "diagnostic-notes")]
                 Diagnostic::spanned(f.name.span().unwrap(), Level::Note, 
@@ -744,8 +766,8 @@ fn derive_struct(
     let result = quote!{
         impl packing::Packed for #struct_ident {
             type Error = packing::Error;
-            /// Number of bytes this struct packs to/from
-            const BYTES: usize = #min_len;
+            
+            #[doc = #pack_to_comment]
             fn pack(&self, bytes: &mut [u8]) -> Result<(), Self::Error> {
                 if bytes.len() < #min_len {
                     return Err(packing::Error::InsufficientBytes);
@@ -756,7 +778,7 @@ fn derive_struct(
                 //       consumer clears before calling this.
                 for b in bytes[0..#min_len].iter_mut() { *b = 0 }
 
-                
+
                 #( #packers )*
 
                 Ok(())
@@ -771,6 +793,22 @@ fn derive_struct(
                 })
             }
         }
+
+        impl packing::PackedBytes<[u8; #min_len]> for #struct_ident {
+            type Error = packing::Error;
+            fn to_bytes<En: packing::Endian>(&self) -> Result<[u8; #min_len], Self::Error> {
+                let mut res = [0; #min_len];
+                self.pack(&mut res)?;
+                Ok(res)
+            }
+            fn from_bytes<En: packing::Endian>(bytes: [u8; #min_len]) -> Result<Self, Self::Error> {
+                Self::unpack(&bytes)
+            }
+        }
+
+        impl packing::PackedSize for #struct_ident {
+            const BYTES: usize = #min_len;
+        }
     };
 
     Ok(result.into())
@@ -779,7 +817,7 @@ fn derive_struct(
 fn derive_enum(
     struct_span: Span, 
     struct_ident: Ident,
-    bit_order: BitOrder,
+    _bit_order: BitOrder,
     _struct_endian: Endian,
     variants: Vec<Variant>,
 ) -> Result<TokenStream, Error> 
@@ -811,7 +849,6 @@ fn derive_enum(
 
     let type_ = get_next_bigger_type(min_width as usize * 8)
         .ok_or(Error::new(struct_span, format!("Failed to find field big enough to fit {} byte enum", min_width)))?;
-    let width = map_typenum(min_width as usize);
 
     let ty = format_ident!("{}", type_);
 
@@ -825,25 +862,36 @@ fn derive_enum(
         match_from.push(quote!{ #struct_ident::#name => #num_t, });
     }
 
+    let width = min_width as usize;
+    
     let mut results = Vec::new();
 
-    let bit_restriction = if min_width == 1 {
-        quote! { E: packing::IsLessOrEqual<S>, }
-    } else {
-        quote! {}
-    };
+    results.push(quote!{
+        impl #struct_ident {
+            pub fn to_primitive(&self) -> #ty {
+                match self {
+                    #( #match_from )*
+                }
+            }
+        }
+
+        impl packing::PackedSize for #struct_ident {
+            //TODO: enum size > 1 byte
+            const BYTES: usize = #width;
+        }
+    });
 
     results.push(quote!{ 
-        impl packing::PackedBytes<[u8; 1]> for #struct_ident {
+        impl packing::PackedBytes<[u8; #width]> for #struct_ident {
             type Error = packing::Error;
-            fn to_bytes<En: packing::Endian>(&self) -> Result<[u8; 1], Self::Error> {
+            fn to_bytes<En: packing::Endian>(&self) -> Result<[u8; #width], Self::Error> {
                 let num = match self {
                     #( #match_from )*
                 };
-                Ok(<#ty as packing::PackedBytes<[u8; 1]>>::to_bytes::<En>(&num)?)
+                Ok(<#ty as packing::PackedBytes<[u8; #width]>>::to_bytes::<En>(&num)?)
             }
-            fn from_bytes<En: packing::Endian>(bytes: [u8; 1]) -> Result<Self, Self::Error> {
-                let num = <#ty as packing::PackedBytes<[u8; 1]>>::from_bytes::<En>(bytes)?;
+            fn from_bytes<En: packing::Endian>(bytes: [u8; #width]) -> Result<Self, Self::Error> {
+                let num = <#ty as packing::PackedBytes<[u8; #width]>>::from_bytes::<En>(bytes)?;
                 match num {
                     #( #match_to )*
                     _ => Err(packing::Error::InvalidEnumDiscriminant),

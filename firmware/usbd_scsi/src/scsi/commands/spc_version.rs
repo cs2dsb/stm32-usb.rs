@@ -1,6 +1,6 @@
-use packed_struct_codegen::PrimitiveEnum;
+use packing::Packed;
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PrimitiveEnum)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
 pub enum SpcVersion {
     //The device server does not claim conformance to any standard.
     None = 0x00,

@@ -1,26 +1,31 @@
-use packed_struct_codegen::PackedStruct;
-use packed_struct::PackedStruct;
+use packing::Packed;
 use crate::scsi::{
-    packing::{ ResizeSmaller, ParsePackedStruct },
+    packing::ParsePackedStruct,
     commands::Control,
 };
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PackedStruct)]
-#[packed_struct(endian="msb", bit_numbering="msb0")]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
+#[packed(big_endian, lsb0)]
 pub struct StartStopUnitCommand {
-    #[packed_field(bits="7..8")]
+    #[pkd(0, 0, 0, 0)]
     pub immediate: bool,
-    #[packed_field(bits="20..24")]
+    
+    #[pkd(3, 0, 2, 2)]
     pub power_condition_modifier: u8,
-    #[packed_field(bits="24..28")]
+    
+    #[pkd(7, 4, 3, 3)]
     pub power_condition: u8,
-    #[packed_field(bits="29..30")]
+    
+    #[pkd(2, 2, 3, 3)]
     pub no_flush: bool,
-    #[packed_field(bits="30..31")]
+    
+    #[pkd(1, 1, 3, 3)]
     pub load_eject: bool,
-    #[packed_field(bits="31..32")]
+    
+    #[pkd(0, 0, 3, 3)]
     pub start: bool,
-    #[packed_field(bits="32..40")]
+    
+    #[pkd(7, 0, 4, 4)]
     pub control: Control,
 }
-impl<A: ResizeSmaller<[u8; StartStopUnitCommand::BYTES]>> ParsePackedStruct<A, [u8; StartStopUnitCommand::BYTES]> for StartStopUnitCommand {}
+impl ParsePackedStruct for StartStopUnitCommand {}

@@ -1,28 +1,28 @@
-use packed_struct_codegen::PackedStruct;
-use packed_struct::PackedStruct;
+use packing::Packed;
 use crate::scsi::{
-    packing::{ ResizeSmaller, ParsePackedStruct },
+    packing::ParsePackedStruct,
     commands::Control,
 };
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PackedStruct)]
-#[packed_struct(endian="msb", bit_numbering="msb0")]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
+#[packed(big_endian, lsb0)]
 pub struct FormatCommand {
-    #[packed_field(bits="0..2")]
+    #[pkd(7, 6, 0, 0)]
     pub format_protection_information: u8,
-    #[packed_field(bits="2..3")]
+    
+    #[pkd(5, 5, 0, 0)]
     pub long_list: bool,
-    #[packed_field(bits="3..4")]
+    
+    #[pkd(4, 4, 0, 0)]
     pub format_data: bool,
-    #[packed_field(bits="4..5")]
+    
+    #[pkd(3, 3, 0, 0)]
     pub complete_list: bool,
-    #[packed_field(bits="5..8")]
+    
+    #[pkd(2, 0, 0, 0)]
     pub defect_list_format: u8,
-    #[packed_field(bits="8..16")]
-    pub vendor_specific: u8,
-    #[packed_field(bits="30..32")]
-    pub fast_format: u8,
-    #[packed_field(bits="32..40")]
+            
+    #[pkd(7, 0, 4, 4)]
     pub control: Control,
 }
-impl<A: ResizeSmaller<[u8; FormatCommand::BYTES]>> ParsePackedStruct<A, [u8; FormatCommand::BYTES]> for FormatCommand {}
+impl ParsePackedStruct for FormatCommand {}

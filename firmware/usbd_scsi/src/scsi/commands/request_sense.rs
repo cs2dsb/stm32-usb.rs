@@ -1,59 +1,76 @@
-use packed_struct_codegen::PackedStruct;
-use packed_struct::PackedStruct;
+use packing::{
+    Packed,
+    PackedSize,
+};
 use crate::scsi::{
-    packing::{ ResizeSmaller, ParsePackedStruct },
+    packing::ParsePackedStruct,
     commands::{
         Control,
         response_code::ResponseCode,
         sense_key::SenseKey,
-        additional_sense_code::AdditionalSenseCode,
+        //additional_sense_code::AdditionalSenseCode,
     },
 };
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PackedStruct)]
-#[packed_struct(endian="msb", bit_numbering="msb0")]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
+#[packed(big_endian, lsb0)]
 pub struct RequestSenseCommand {
-    #[packed_field(bits="7..8")]
+    #[pkd(0, 0, 0, 0)]
     pub descriptor_format: bool,
-    #[packed_field(bits="24..32")]
+    
+    #[pkd(7, 0, 3, 3)]
     pub allocation_length: u8,
-    #[packed_field(bits="32..40")]
+    
+    #[pkd(7, 0, 4, 4)]
     pub control: Control,
 }
-impl<A: ResizeSmaller<[u8; RequestSenseCommand::BYTES]>> ParsePackedStruct<A, [u8; RequestSenseCommand::BYTES]> for RequestSenseCommand {}
+impl ParsePackedStruct for RequestSenseCommand {}
 
 
-#[derive(Clone, Copy, PackedStruct)]
-#[packed_struct(endian="msb", bit_numbering="msb0")]
+#[derive(Clone, Copy, Packed)]
+#[packed(big_endian, lsb0)]
 pub struct RequestSenseResponse {
-    #[packed_field(bits="0..1")] 
+    #[pkd(7, 7, 0, 0)]
     pub valid: bool,
-    #[packed_field(bits="1..8", ty="enum")] 
+    
+    #[pkd(6, 0, 0, 0)]
     pub response_code: ResponseCode,
-    #[packed_field(bits="16..17")] 
+    
+    #[pkd(7, 7, 1, 1)]
     pub filemark: bool,
-    #[packed_field(bits="17..18")] 
+    
+    #[pkd(6, 6, 1, 1)]
     pub end_of_medium: bool,
-    #[packed_field(bits="18..19")] 
+    
+    #[pkd(5, 5, 1, 1)]
     pub incorrect_length_indicator: bool,
-    #[packed_field(bits="20..24", ty="enum")] 
+    
+    #[pkd(3, 0, 1, 1)]
     pub sense_key: SenseKey,
-    #[packed_field(bits="24..56")] 
+    
+    #[pkd(7, 0, 3, 6)]
     pub information: u32,
-    #[packed_field(bits="56..64")]
+    
+    #[pkd(7, 0, 7, 7)]
     /// n-7 
     pub additional_sense_length: u8,
-    #[packed_field(bits="64..96")] 
+    
+    #[pkd(7, 0, 8, 11)]
     pub command_specifc_information: u32,
-    #[packed_field(bits="96..112", ty="enum")] 
-    pub additional_sense_code: AdditionalSenseCode,
-    #[packed_field(bits="112..120")] 
+    
+    #[pkd(7, 0, 12, 13)]
+    pub additional_sense_code: u16,//AdditionalSenseCode,
+    
+    #[pkd(7, 0, 14, 14)]
     pub field_replaceable_unit_code: u8,
-    #[packed_field(bits="120..121")] 
+    
+    #[pkd(7, 7, 15, 15)]
     pub sense_key_specific_valid: bool,
-    #[packed_field(bits="121..144")] 
+    
+    #[pkd(6, 0, 15, 17)]
     pub sense_key_specific: u32,
-    #[packed_field(bits="144..2024")] 
+    
+    #[pkd(7, 0, 18, 252)]
     pub additional_sense_data: [u8; 235],
 }
 

@@ -1,18 +1,19 @@
-use packed_struct_codegen::PackedStruct;
-use packed_struct::PackedStruct;
+use packing::Packed;
 use crate::scsi::{
-    packing::{ ResizeSmaller, ParsePackedStruct },
+    packing::ParsePackedStruct,
     commands::Control,
 };
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PackedStruct)]
-#[packed_struct(endian="msb", bit_numbering="msb0")]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
+#[packed(big_endian, lsb0)]
 pub struct ReportLunsCommand {
-    #[packed_field(bits="8..16")]
+    #[pkd(7, 0, 1, 1)]
     pub select_report: u8,
-    #[packed_field(bits="40..72")]
+    
+    #[pkd(7, 0, 5, 8)]
     pub allocation_length: u32,
-    #[packed_field(bits="80..88")]
+    
+    #[pkd(7, 0, 10, 10)]
     pub control: Control,
 }
-impl<A: ResizeSmaller<[u8; ReportLunsCommand::BYTES]>> ParsePackedStruct<A, [u8; ReportLunsCommand::BYTES]> for ReportLunsCommand {}
+impl ParsePackedStruct for ReportLunsCommand {}

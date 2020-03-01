@@ -1,6 +1,6 @@
-use packed_struct_codegen::PrimitiveEnum;
+use packing::Packed;
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PrimitiveEnum)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
 pub enum SenseKey {
     /// Indicates that there is no specific sense key information to be reported. This may occur for a successful command or for a command that receives CHECK CONDITION status because one of the FILEMARK , EOM , or ILI bits is set to one.
     NoSense =0x0,

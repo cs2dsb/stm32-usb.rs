@@ -11,6 +11,7 @@ pub use UsbError::WouldBlock;
 use packing::{
     Error as PackingError,
     Packed,
+    PackedSize,
 };
 
 use usbd_mass_storage::{

@@ -1,7 +1,6 @@
-use packed_struct_codegen::PackedStruct;
-use packed_struct::PackedStruct;
+use packing::Packed;
 use crate::scsi::{
-    packing::{ ResizeSmaller, ParsePackedStruct },
+    packing::ParsePackedStruct,
     commands::Control,
 };
 
@@ -10,21 +9,22 @@ pub struct ModeSelectXCommand {
     // TBD
 }
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PackedStruct)]
-#[packed_struct(endian="msb", bit_numbering="msb0")]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
+#[packed(big_endian, lsb0)]
 pub struct ModeSelect6Command {
-    #[packed_field(bits="3..4")]
+    #[pkd(4, 4, 0, 0)]
     pub page_format: bool,
-    #[packed_field(bits="6..7")]
-    pub revert_to_defaults: bool,
-    #[packed_field(bits="7..8")]
+
+    #[pkd(0, 0, 0, 0)]
     pub save_pages: bool,
-    #[packed_field(bits="24..32")]
+
+    #[pkd(7, 0, 3, 3)]
     pub parameter_list_length: u8,
-    #[packed_field(bits="32..40")]
+
+    #[pkd(7, 0, 4, 4)]
     pub control: Control,
 }
-impl<A: ResizeSmaller<[u8; ModeSelect6Command::BYTES]>> ParsePackedStruct<A, [u8; ModeSelect6Command::BYTES]> for ModeSelect6Command {}
+impl ParsePackedStruct for ModeSelect6Command {}
 impl From<ModeSelect6Command> for ModeSelectXCommand {
     fn from(_m: ModeSelect6Command) -> Self {
         Self { }
@@ -32,19 +32,22 @@ impl From<ModeSelect6Command> for ModeSelectXCommand {
 }
 
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PackedStruct)]
-#[packed_struct(endian="msb", bit_numbering="msb0")]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
+#[packed(big_endian, lsb0)]
 pub struct ModeSelect10Command {
-    #[packed_field(bits="3..4")]
+    #[pkd(4, 4, 0, 0)]
     pub page_format: bool,
-    #[packed_field(bits="7..8")]
+
+    #[pkd(0, 0, 0, 0)]
     pub save_pages: bool,
-    #[packed_field(bits="48..64")]
+
+    #[pkd(7, 0, 6, 7)]
     pub parameter_list_length: u16,
-    #[packed_field(bits="64..72")]
+
+    #[pkd(7, 0, 8, 8)]
     pub control: Control,
 }
-impl<A: ResizeSmaller<[u8; ModeSelect10Command::BYTES]>> ParsePackedStruct<A, [u8; ModeSelect10Command::BYTES]> for ModeSelect10Command {}
+impl ParsePackedStruct for ModeSelect10Command {}
 impl From<ModeSelect10Command> for ModeSelectXCommand {
     fn from(_m: ModeSelect10Command) -> Self {
         Self { }

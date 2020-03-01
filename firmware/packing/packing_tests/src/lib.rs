@@ -22,9 +22,49 @@ pub struct ModeSense6Command {
     #[packed(start_bit=7, end_bit=0, start_byte=6, end_byte=7)] pub sixteen: u16,
 }
 
+#[derive(Packed, PartialEq, Eq, Debug)]
+#[packed(big_endian, lsb0)]
+pub struct SomeBools {
+    #[packed(start_bit=7, end_bit=7, start_byte=0, end_byte=0)] pub a: bool,
+    #[packed(start_bit=5, end_bit=5, start_byte=0, end_byte=0)] pub b: bool,
+    #[packed(start_bit=0, end_bit=0, start_byte=0, end_byte=0)] pub c: bool,
+}
+
+#[derive(Packed, PartialEq, Eq, Debug)]
+#[packed(big_endian, lsb0)]
+pub struct Nested {
+    #[packed(start_bit=7, end_bit=0, start_byte=0, end_byte=0)] pub sb1: SomeBools,
+    #[packed(start_bit=7, end_bit=0, start_byte=1, end_byte=1)] pub other1: u8,
+    #[packed(start_bit=7, end_bit=0, start_byte=2, end_byte=2)] pub sb2: SomeBools,
+    #[packed(start_bit=7, end_bit=0, start_byte=3, end_byte=4)] pub other2: u16,
+    #[packed(start_bit=7, end_bit=0, start_byte=5, end_byte=5)] pub sb3: SomeBools,    
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_nested_struct() {
+        let n = Nested {
+            sb1: SomeBools { a: true, b: false, c: true },
+            other1: 5,
+            sb2: SomeBools { a: true, b: true, c: true },
+            other2: 260,
+            sb3: SomeBools { a: false, b: true, c: false },    
+        };
+
+        let mut packed = [0; Nested::BYTES];
+        n.pack(&mut packed).unwrap();
+
+        let n2 = Nested::unpack(&packed).unwrap();
+        assert_eq!(n, n2);
+
+        let mut packed2 = [0; Nested::BYTES];
+        n2.pack(&mut packed2).unwrap();
+        assert_eq!(n, n2);
+    }
 
     #[test]
     fn test_mode_sense_6_unpack() {

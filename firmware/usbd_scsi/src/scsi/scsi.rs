@@ -1,6 +1,7 @@
-use packed_struct::{ 
-    PackedStruct, 
-    PrimitiveEnum,
+use packed_struct::PrimitiveEnum;
+use packing::{
+    Packed,
+    PackedSize,
 };
 use usb_device::class_prelude::*;
 use usb_device::Result as UsbResult;
@@ -28,6 +29,7 @@ use crate::{
         ModeSenseXCommand,
         PageControl,
         CommandLength,
+        PageCode,
     },
 };
 
@@ -139,7 +141,7 @@ impl<B: UsbBus> Scsi<'_, B> {
             Command::None => { done = false },
             Command::Inquiry(_) => {
                 let buf = self.inner.take_buffer_space(InquiryResponse::BYTES)?;
-                buf.copy_from_slice(&self.inquiry_response.pack());
+                self.inquiry_response.pack(buf)?;
             },
             Command::TestUnitReady(_) => { info!("TestUnitReady"); }
             Command::PreventAllowMediumRemoval(_) => { info!("PreventAllowMediumRemoval"); },
@@ -159,9 +161,21 @@ impl<B: UsbBus> Scsi<'_, B> {
                 buf[7] = ((block_size >> 0) & 0xFF) as u8;
             },
             Command::ModeSense(ModeSenseXCommand { command_length: CommandLength::C6, page_control: PageControl::CurrentValues })  => {
+                
                 let mut header = ModeParameterHeader6::default();
-                //header.device_specific_parameter.write_protect = true;
+                header.increase_length_for_page(PageCode::CachingModePage);
+                
+                let cache_page = CachingModePage::default();
 
+                let buf = self.inner.take_buffer_space(
+                    ModeParameterHeader6::BYTES + CachingModePage::BYTES
+                )?;   
+
+                header.pack(&mut buf[..ModeParameterHeader6::BYTES])?;
+                cache_page.pack(&mut buf[ModeParameterHeader6::BYTES..])?;
+
+                //header.device_specific_parameter.write_protect = true;
+                /*
                 let cache_page = CachingModePage::default().pack();
                 header.increase_length_for_page(&cache_page);
                 let header = header.pack();
@@ -171,10 +185,11 @@ impl<B: UsbBus> Scsi<'_, B> {
                 )?;
                 buf[..ModeParameterHeader6::BYTES].copy_from_slice(&header);
                 buf[ModeParameterHeader6::BYTES..].copy_from_slice(&cache_page);
+                */
             },
             Command::RequestSense(_) => {
                 let buf = self.inner.take_buffer_space(RequestSenseResponse::BYTES)?;
-                buf.copy_from_slice(&self.request_sense_response.pack());
+                self.request_sense_response.pack(buf)?;
             },
             Command::Read(r) => {
                 if new_command {

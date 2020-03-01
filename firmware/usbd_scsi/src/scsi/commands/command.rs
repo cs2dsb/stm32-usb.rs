@@ -1,3 +1,4 @@
+use packing::Packed;
 use packed_struct_codegen::{ PackedStruct, PrimitiveEnum };
 use packed_struct::{
     PackedStruct,
@@ -7,11 +8,7 @@ use crate::scsi::{
     commands::*,
     Error,
     Direction,
-    packing::{
-        *,
-        //ParsePackedStruct,
-        //ResizeSmaller,
-    },
+    packing::ParsePackedStruct,
 };
 
 pub trait Respond<B, P> 
@@ -67,12 +64,12 @@ pub enum CommandOpCode {
 
 
 /// This is the last byte on all commands
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PackedStruct)]
-#[packed_struct(endian="msb", bit_numbering="msb0")]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Default, Packed)]
+#[packed(big_endian, lsb0)]
 pub struct Control {
-    #[packed_field(bits="0..2")]
+    #[pkd(7, 6, 0, 0)]
     pub vendor_specific: u8,
-    #[packed_field(bits="5..6")]
+    #[pkd(2, 2, 0, 0)]
     pub normal_aca: bool,
 }
 
@@ -145,30 +142,16 @@ pub struct CommandBlockWrapper {
     pub data: [u8; 15],
 }
 
-
-impl<A: ResizeSmaller<[u8; CommandBlockWrapper::BYTES]>>  ParsePackedStruct<A, [u8; CommandBlockWrapper::BYTES]> for CommandBlockWrapper {
-    fn verify(&mut self) -> Result<(), Error> {
-        if self.signature != Self::SIGNATURE {
-            Err(Error::SignatureError)?
-        }
-        // data_length includes the OpCode but we chopped that off the front of the data array
-        self.data_length -= 1;
-        Ok(())
-    }    
-}
-
-fn checked_extract<A, B, T>(len: u8, data: &A) -> Result<T, Error> 
-where 
-    A: ResizeSmaller<B>,
-    B: Len,
-    T: ParsePackedStruct<A, B>,
+fn checked_extract<T>(len: u8, data: &[u8]) -> Result<T, Error>
+where
+    T: ParsePackedStruct,
+    Error: From<<T as Packed>::Error>,
 {
-    if len < (B::len() as u8) {
+    if len < T::BYTES as u8 {
         Err(Error::InsufficientDataForCommand)?
     }
     Ok(T::parse(data)?)
 }
-
 
 impl Default for CommandBlockWrapper {
     fn default() -> Self {
@@ -190,35 +173,28 @@ impl CommandBlockWrapper {
 
     pub fn extract_command(&self) -> Result<Command, Error> {
         match self.command {
+            CommandOpCode::Read6 => Ok(Command::Read(checked_extract::<Read6Command>(self.data_length, &self.data)?.into())),
+            CommandOpCode::Read10 => Ok(Command::Read(checked_extract::<Read10Command>(self.data_length, &self.data)?.into())),
+            CommandOpCode::Read12 => Ok(Command::Read(checked_extract::<Read12Command>(self.data_length, &self.data)?.into())),
+            CommandOpCode::ReadCapacity10 => Ok(Command::ReadCapacity(checked_extract(self.data_length, &self.data)?)), 
+            CommandOpCode::ReadFormatCapacities => Ok(Command::ReadFormatCapacities(checked_extract(self.data_length, &self.data)?)),
             CommandOpCode::Inquiry => Ok(Command::Inquiry(checked_extract(self.data_length, &self.data)?)),
             CommandOpCode::TestUnitReady => Ok(Command::TestUnitReady(checked_extract(self.data_length, &self.data)?)),
-            CommandOpCode::ReadCapacity10 => Ok(Command::ReadCapacity(checked_extract(self.data_length, &self.data)?)), 
-            
-            CommandOpCode::ModeSense6 => Ok(Command::ModeSense(checked_extract::<_, _, ModeSense6Command>(self.data_length, &self.data)?.into())),
-            CommandOpCode::ModeSense10 => Ok(Command::ModeSense(checked_extract::<_, _, ModeSense10Command>(self.data_length, &self.data)?.into())),
-            
-            CommandOpCode::ModeSelect6 => Ok(Command::ModeSelect(checked_extract::<_, _, ModeSelect6Command>(self.data_length, &self.data)?.into())),
-            CommandOpCode::ModeSelect10 => Ok(Command::ModeSelect(checked_extract::<_, _, ModeSelect10Command>(self.data_length, &self.data)?.into())),
-
+            CommandOpCode::ModeSense6 => Ok(Command::ModeSense(checked_extract::<ModeSense6Command>(self.data_length, &self.data)?.into())),
+            CommandOpCode::ModeSense10 => Ok(Command::ModeSense(checked_extract::<ModeSense10Command>(self.data_length, &self.data)?.into())),
+            CommandOpCode::ModeSelect6 => Ok(Command::ModeSelect(checked_extract::<ModeSelect6Command>(self.data_length, &self.data)?.into())),
+            CommandOpCode::ModeSelect10 => Ok(Command::ModeSelect(checked_extract::<ModeSelect10Command>(self.data_length, &self.data)?.into())),
             CommandOpCode::PreventAllowMediumRemoval => Ok(Command::PreventAllowMediumRemoval(checked_extract(self.data_length, &self.data)?)),
             CommandOpCode::RequestSense => Ok(Command::RequestSense(checked_extract(self.data_length, &self.data)?)),
-            
-            CommandOpCode::Read6 => Ok(Command::Read(checked_extract::<_, _, Read6Command>(self.data_length, &self.data)?.into())),
-            CommandOpCode::Read10 => Ok(Command::Read(checked_extract::<_, _, Read10Command>(self.data_length, &self.data)?.into())),
-            CommandOpCode::Read12 => Ok(Command::Read(checked_extract::<_, _, Read12Command>(self.data_length, &self.data)?.into())),
-            
-            CommandOpCode::Write6 => Ok(Command::Write(checked_extract::<_, _, Write6Command>(self.data_length, &self.data)?.into())),
-            CommandOpCode::Write10 => Ok(Command::Write(checked_extract::<_, _, Write10Command>(self.data_length, &self.data)?.into())),
-            CommandOpCode::Write12 => Ok(Command::Write(checked_extract::<_, _, Write12Command>(self.data_length, &self.data)?.into())),
-            
+            CommandOpCode::Write6 => Ok(Command::Write(checked_extract::<Write6Command>(self.data_length, &self.data)?.into())),
+            CommandOpCode::Write10 => Ok(Command::Write(checked_extract::<Write10Command>(self.data_length, &self.data)?.into())),
+            CommandOpCode::Write12 => Ok(Command::Write(checked_extract::<Write12Command>(self.data_length, &self.data)?.into())),
             CommandOpCode::Format => Ok(Command::Format(checked_extract(self.data_length, &self.data)?)),
             CommandOpCode::SendDiagnostic => Ok(Command::SendDiagnostic(checked_extract(self.data_length, &self.data)?)),
             CommandOpCode::ReportLuns => Ok(Command::ReportLuns(checked_extract(self.data_length, &self.data)?)),
             CommandOpCode::StartStopUnit => Ok(Command::StartStopUnit(checked_extract(self.data_length, &self.data)?)),
-            CommandOpCode::ReadFormatCapacities => Ok(Command::ReadFormatCapacities(checked_extract(self.data_length, &self.data)?)),
             CommandOpCode::Verify10 => Ok(Command::Verify(checked_extract(self.data_length, &self.data)?)),
             CommandOpCode::SynchronizeCache10 => Ok(Command::SynchronizeCache(checked_extract(self.data_length, &self.data)?)),
-            
             _ => Err(Error::UnhandledOpCode),
         }
     }

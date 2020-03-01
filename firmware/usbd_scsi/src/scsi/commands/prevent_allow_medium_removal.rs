@@ -1,16 +1,16 @@
-use packed_struct_codegen::PackedStruct;
-use packed_struct::PackedStruct;
+use packing::Packed;
 use crate::scsi::{
-    packing::{ ResizeSmaller, ParsePackedStruct },
+    packing::ParsePackedStruct,
     commands::Control,
 };
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PackedStruct)]
-#[packed_struct(endian="msb", bit_numbering="msb0")]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
+#[packed(big_endian, lsb0)]
 pub struct PreventAllowMediumRemovalCommand {
-    #[packed_field(bits="30..32")]
+    #[pkd(1, 0, 3, 3)]
     pub prevent: u8,
-    #[packed_field(bits="32..40")]
+
+    #[pkd(7, 0, 4, 4)]
     pub control: Control,
 }
-impl<A: ResizeSmaller<[u8; PreventAllowMediumRemovalCommand::BYTES]>> ParsePackedStruct<A, [u8; PreventAllowMediumRemovalCommand::BYTES]> for PreventAllowMediumRemovalCommand {}
+impl ParsePackedStruct for PreventAllowMediumRemovalCommand {}

@@ -19,6 +19,7 @@ codegen               = { path = "./codegen" }
 uf2                   = { path = "../uf2" }
 usbd-mass-storage     = { path = "../usbd_mass_storage" }
 usbd-bulk-only-transport = { path = "../usbd_bulk_only_transport" }
+packing               = { path = "../packing/packing" }
 
 [features]
 trace-bot-headers = [ "usbd-bulk-only-transport/trace-bot-headers" ]

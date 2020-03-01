@@ -1,10 +1,10 @@
 //! USB interface protocol
-use packed_struct_codegen::PrimitiveEnum;
+use packing::Packed;
 
 /// This specifies the protocol of the USB interface
 ///
 /// Section 3 [USB Mass Storage Class Overview](https://www.usb.org/document-library/mass-storage-class-specification-overview-14)
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PrimitiveEnum)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
 pub enum InterfaceProtocol {
     /// USB Mass Storage Class Control/Bulk/Interrupt (CBI) Transport (with command completion interrupt)
     CbiWithCCInterrupt = 0x00,

@@ -1,10 +1,10 @@
 //! USB interface subclass
-use packed_struct_codegen::PrimitiveEnum;
+use packing::Packed;
 
 /// This specifies the subclass of the USB interface
 ///
 /// Section 2 [USB Mass Storage Class Overview](https://www.usb.org/document-library/mass-storage-class-specification-overview-14)
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PrimitiveEnum)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
 pub enum InterfaceSubclass {
     /// SCSI command set not reported. De facto use
     ScsiCommandSetNotReported = 0x00,
