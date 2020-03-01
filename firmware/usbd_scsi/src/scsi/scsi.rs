@@ -1,4 +1,3 @@
-use packed_struct::PrimitiveEnum;
 use packing::{
     Packed,
     PackedSize,
@@ -19,8 +18,6 @@ use crate::{
     ghost_fat::GhostFat,
     scsi::{
         Command,
-        CommandBlockWrapper as CommandBlockWrapper_OLD,
-        CommandOpCode,
         InquiryResponse,
         inquiry_response,
         ModeParameterHeader6,
@@ -82,13 +79,8 @@ impl<B: UsbBus> Scsi<'_, B> {
         }
 
         if let Some(cbw) = self.inner.get_current_command() {
-            //TODO: this is a big hack because i'm scared to delete the old stuff yet
-            let mut old = CommandBlockWrapper_OLD::default();
-            old.command = CommandOpCode::from_primitive(cbw.data[0]).expect("Failed to parse op code");
-            old.data_length = cbw.data_length;
-            old.data.copy_from_slice(&cbw.data[1..]);
             // TODO: handle failure better
-            match old.extract_command() {
+            match Command::extract_from_cbw(cbw) {
                 Ok(c) => {
                     self.current_command = c;
                     true

@@ -15,13 +15,16 @@ use crate::scsi::{
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
 #[packed(big_endian, lsb0)]
 pub struct RequestSenseCommand {
-    #[pkd(0, 0, 0, 0)]
+    #[pkd(7, 0, 0, 0)]
+    pub op_code: u8,
+    
+    #[pkd(0, 0, 1, 1)]
     pub descriptor_format: bool,
     
-    #[pkd(7, 0, 3, 3)]
+    #[pkd(7, 0, 4, 4)]
     pub allocation_length: u8,
     
-    #[pkd(7, 0, 4, 4)]
+    #[pkd(7, 0, 5, 5)]
     pub control: Control,
 }
 impl ParsePackedStruct for RequestSenseCommand {}
@@ -30,47 +33,50 @@ impl ParsePackedStruct for RequestSenseCommand {}
 #[derive(Clone, Copy, Packed)]
 #[packed(big_endian, lsb0)]
 pub struct RequestSenseResponse {
-    #[pkd(7, 7, 0, 0)]
-    pub valid: bool,
-    
-    #[pkd(6, 0, 0, 0)]
-    pub response_code: ResponseCode,
+    #[pkd(7, 0, 0, 0)]
+    pub op_code: u8,
     
     #[pkd(7, 7, 1, 1)]
+    pub valid: bool,
+    
+    #[pkd(6, 0, 1, 1)]
+    pub response_code: ResponseCode,
+    
+    #[pkd(7, 7, 2, 2)]
     pub filemark: bool,
     
-    #[pkd(6, 6, 1, 1)]
+    #[pkd(6, 6, 2, 2)]
     pub end_of_medium: bool,
     
-    #[pkd(5, 5, 1, 1)]
+    #[pkd(5, 5, 2, 2)]
     pub incorrect_length_indicator: bool,
     
-    #[pkd(3, 0, 1, 1)]
+    #[pkd(3, 0, 2, 2)]
     pub sense_key: SenseKey,
     
-    #[pkd(7, 0, 3, 6)]
+    #[pkd(7, 0, 4, 7)]
     pub information: u32,
     
-    #[pkd(7, 0, 7, 7)]
+    #[pkd(7, 0, 8, 8)]
     /// n-7 
     pub additional_sense_length: u8,
     
-    #[pkd(7, 0, 8, 11)]
+    #[pkd(7, 0, 9, 12)]
     pub command_specifc_information: u32,
     
-    #[pkd(7, 0, 12, 13)]
+    #[pkd(7, 0, 13, 14)]
     pub additional_sense_code: u16,//AdditionalSenseCode,
     
-    #[pkd(7, 0, 14, 14)]
+    #[pkd(7, 0, 15, 15)]
     pub field_replaceable_unit_code: u8,
     
-    #[pkd(7, 7, 15, 15)]
+    #[pkd(7, 7, 16, 16)]
     pub sense_key_specific_valid: bool,
     
-    #[pkd(6, 0, 15, 17)]
+    #[pkd(6, 0, 16, 18)]
     pub sense_key_specific: u32,
     
-    #[pkd(7, 0, 18, 252)]
+    #[pkd(7, 0, 19, 253)]
     pub additional_sense_data: [u8; 235],
 }
 
@@ -86,19 +92,21 @@ impl Default for RequestSenseResponse {
     fn default() -> Self {
         Self {
             valid: true,
+            additional_sense_length: Self::BYTES as u8 - 7,
+            sense_key_specific_valid: true,
+            additional_sense_data: [0; 235],
+
+            op_code: Default::default(),
             response_code: Default::default(),
             filemark: Default::default(),
             end_of_medium: Default::default(),
             incorrect_length_indicator: Default::default(),
             sense_key: Default::default(),
             information: Default::default(),
-            additional_sense_length: Self::BYTES as u8 - 7,
             command_specifc_information: Default::default(),
             additional_sense_code: Default::default(),
             field_replaceable_unit_code: Default::default(),
-            sense_key_specific_valid: true,
             sense_key_specific: Default::default(),
-            additional_sense_data: [0; 235],
         }
     }
 }

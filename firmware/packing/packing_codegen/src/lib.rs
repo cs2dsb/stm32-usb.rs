@@ -873,6 +873,12 @@ fn derive_enum(
                     #( #match_from )*
                 }
             }
+            pub fn from_primitive(num: #ty) -> Result<Self, packing::Error>  {
+                match num {
+                    #( #match_to)*
+                    _ => Err(packing::Error::InvalidEnumDiscriminant),
+                }
+            }
         }
 
         impl packing::PackedSize for #struct_ident {

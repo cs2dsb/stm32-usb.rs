@@ -7,16 +7,16 @@ use crate::scsi::commands::medium_type::MediumType;
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
 #[packed(big_endian, lsb0)]
 pub struct ModeParameterHeader6 {
-    #[packed(start_bit=7, end_bit=0, start_byte=0, end_byte=0)]
+    #[pkd(7, 0, 0, 0)]
     pub mode_data_length: u8,
 
-    #[packed(start_bit=7, end_bit=0, start_byte=1, end_byte=1)]
+    #[pkd(7, 0, 1, 1)]
     pub medium_type: MediumType,
 
-    #[packed(start_bit=7, end_bit=0, start_byte=2, end_byte=2)]
+    #[pkd(7, 0, 2, 2)]
     pub device_specific_parameter: SbcDeviceSpecificParameter,
 
-    #[packed(start_bit=7, end_bit=0, start_byte=3, end_byte=3)]
+    #[pkd(7, 0, 3, 3)]
     pub block_descriptor_length: u8,
 }
 impl Default for ModeParameterHeader6 {
@@ -42,19 +42,19 @@ impl ModeParameterHeader6 {
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
 #[packed(big_endian, lsb0)]
 pub struct ModeParameterHeader10 {
-    #[packed(start_bit=7, end_bit=0, start_byte=0, end_byte=1)]
+    #[pkd(7, 0, 0, 1)]
     pub mode_data_length: u16,
 
-    #[packed(start_bit=7, end_bit=0, start_byte=2, end_byte=2)]
+    #[pkd(7, 0, 2, 2)]
     pub medium_type: MediumType,
 
-    #[packed(start_bit=7, end_bit=0, start_byte=3, end_byte=3)]
+    #[pkd(7, 0, 3, 3)]
     pub device_specific_parameter: SbcDeviceSpecificParameter,
 
-    #[packed(start_bit=0, end_bit=0, start_byte=4, end_byte=4)]
+    #[pkd(0, 0, 4, 4)]
     pub long_lba: bool,
 
-    #[packed(start_bit=7, end_bit=0, start_byte=6, end_byte=7)]
+    #[pkd(7, 0, 6, 7)]
     pub block_descriptor_length: u16,
 }
 impl Default for ModeParameterHeader10 {
@@ -83,10 +83,10 @@ impl ModeParameterHeader10 {
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Packed, Default)]
 #[packed(big_endian, lsb0)]
 pub struct SbcDeviceSpecificParameter {
-    #[packed(start_bit=7, end_bit=7, start_byte=0, end_byte=0)]
+    #[pkd(7, 7, 0, 0)]
     pub write_protect: bool,
 
-    #[packed(start_bit=4, end_bit=4, start_byte=0, end_byte=0)]
+    #[pkd(4, 4, 0, 0)]
     pub disable_page_out_and_force_unit_access_available: bool,
 }
 
@@ -101,16 +101,16 @@ pub enum PageCode {
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
 #[packed(big_endian, lsb0)]
 pub struct CachingModePage {
-    #[packed(start_bit=5, end_bit=0, start_byte=0, end_byte=0)]
+    #[pkd(5, 0, 0, 0)]
     pub page_code: PageCode,
 
-    #[packed(start_bit=7, end_bit=0, start_byte=1, end_byte=1)]
+    #[pkd(7, 0, 1, 1)]
     pub page_length: u8,
 
-    #[packed(start_bit=2, end_bit=2, start_byte=2, end_byte=2)]
+    #[pkd(2, 2, 2, 2)]
     pub write_cache_enabled: bool,
 
-    #[packed(start_bit=0, end_bit=0, start_byte=2, end_byte=2)]
+    #[pkd(0, 0, 2, 2)]
     pub read_cache_disable: bool,
 }
 impl Default for CachingModePage {

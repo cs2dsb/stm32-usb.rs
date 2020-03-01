@@ -31,22 +31,25 @@ pub struct ModeSenseXCommand {
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
 #[packed(big_endian, lsb0)]
 pub struct ModeSense6Command {
-    #[pkd(3, 3, 0, 0)]
+    #[pkd(7, 0, 0, 0)]
+    pub op_code: u8,
+    
+    #[pkd(3, 3, 1, 1)]
     pub disable_block_descriptors: bool,
     
-    #[pkd(7, 6, 1, 1)]
+    #[pkd(7, 6, 2, 2)]
     pub page_control: PageControl,
     
-    #[pkd(5, 0, 1, 1)]
+    #[pkd(5, 0, 2, 2)]
     pub page_code: u8,
     
-    #[pkd(7, 0, 2, 2)]
+    #[pkd(7, 0, 3, 3)]
     pub subpage_code: u8,
     
-    #[pkd(7, 0, 3, 3)]
+    #[pkd(7, 0, 4, 4)]
     pub allocation_length: u8,
     
-    #[pkd(7, 0, 4, 4)]
+    #[pkd(7, 0, 5, 5)]
     pub control: Control,
 }
 impl ParsePackedStruct for ModeSense6Command {}
@@ -62,25 +65,28 @@ impl From<ModeSense6Command> for ModeSenseXCommand {
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
 #[packed(big_endian, lsb0)]
 pub struct ModeSense10Command {
-    #[pkd(4, 4, 0, 0)]
+    #[pkd(7, 0, 0, 0)]
+    pub op_code: u8,
+    
+    #[pkd(4, 4, 1, 1)]
     pub long_lba_accepted: bool,
 
-    #[pkd(3, 3, 0, 0)]
+    #[pkd(3, 3, 1, 1)]
     pub disable_block_descriptors: bool,
 
-    #[pkd(7, 6, 1, 1)]
+    #[pkd(7, 6, 2, 2)]
     pub page_control: PageControl,
 
-    #[pkd(5, 0, 1, 1)]
+    #[pkd(5, 0, 2, 2)]
     pub page_code: u8,
     
-    #[pkd(7, 0, 2, 2)]
+    #[pkd(7, 0, 3, 3)]
     pub subpage_code: u8,
 
-    #[pkd(7, 0, 7, 8)]
+    #[pkd(7, 0, 8, 9)]
     pub allocation_length: u16,
 
-    #[pkd(7, 0, 9, 9)]
+    #[pkd(7, 0, 10, 10)]
     pub control: Control,
 }
 impl ParsePackedStruct for ModeSense10Command {}

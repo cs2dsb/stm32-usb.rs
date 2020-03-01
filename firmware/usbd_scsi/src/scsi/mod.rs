@@ -1,6 +1,3 @@
-mod direction;
-use direction::Direction;
-
 mod error;
 use error::Error;
 

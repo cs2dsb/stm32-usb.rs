@@ -1,6 +1,15 @@
 mod command;
 pub use command::*;
 
+mod op_code;
+pub use op_code::*;
+
+mod control;
+pub use control::*;
+
+mod command_length;
+pub use command_length::*;
+
 mod inquiry;
 pub use inquiry::*;
 

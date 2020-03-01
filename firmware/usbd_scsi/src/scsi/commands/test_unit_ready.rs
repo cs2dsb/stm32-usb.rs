@@ -7,7 +7,10 @@ use crate::scsi::{
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
 #[packed(big_endian, lsb0)]
 pub struct TestUnitReadyCommand {
-    #[pkd(7, 0, 4, 4)]
+    #[pkd(7, 0, 0, 0)]
+    pub op_code: u8,
+    
+    #[pkd(7, 0, 5, 5)]
     pub control: Control,
 }
 

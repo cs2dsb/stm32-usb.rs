@@ -4,6 +4,7 @@ mod bulk_only_transport;
 
 pub use bulk_only_transport::{
     BulkOnlyTransport,
+    CommandBlockWrapper,
     TransferState,
     Error,
 };
