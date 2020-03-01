@@ -11,10 +11,6 @@ nb                    = "0.1.2"
 itm_logger            = { git = "https://github.com/cs2dsb/itm_logger.rs", default-features = false }
 #itm_logger            = { path = "../../../../rust/itm_logger", default-features = false }
 typenum               = "1.11.2"
-packed_struct         = { git = "https://github.com/cs2dsb/packed_struct.rs", default-features = false }
-packed_struct_codegen = { git = "https://github.com/cs2dsb/packed_struct.rs", default-features = false }
-#packed_struct         = { path = "../../../../rust/packed_struct.rs/packed_struct", default-features = false }
-#packed_struct_codegen = { path = "../../../../rust/packed_struct.rs/packed_struct_codegen", default-features = false }
 codegen               = { path = "./codegen" }
 uf2                   = { path = "../uf2" }
 usbd-mass-storage     = { path = "../usbd_mass_storage" }

@@ -1,19 +1,20 @@
 #![no_std]
-
-use core::ops::Deref;
-use bitmask::bitmask;
-use packed_struct_codegen::PackedStruct;
-use packed_struct::{
-    PackedStruct,
-    PackingError,
+use packing::{ 
+    Packed,
+    PackedSize,
+    Error as PackingError,
 };
+
+use bitmask::bitmask;
 
 pub const DATA_LENGTH: usize = 476;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PackedStruct)]
-#[packed_struct(endian="lsb")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Packed)]
+#[packed(little_endian, lsb0)]
 pub struct MagicStart {
+    #[pkd(7, 0, 0, 3)]
     magic_0: u32,
+    #[pkd(7, 0, 4, 7)]
     magic_1: u32,
 }
 
@@ -28,9 +29,10 @@ impl Default for MagicStart {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PackedStruct)]
-#[packed_struct(endian="lsb")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Packed)]
+#[packed(little_endian, lsb0)]
 pub struct MagicEnd {
+    #[pkd(7, 0, 0, 3)]
     magic: u32,
 }
 
@@ -43,9 +45,10 @@ impl Default for MagicEnd {
     }
 }
 
+/*
 bitmask! {
-    #[derive(Debug, Default, PackedStruct)]
-    #[packed_struct(endian="lsb")]
+    #[derive(Debug, Default, Packed)]
+    #[packed(little_endian, lsb0)]
     pub mask Flags: u32 where 
     
     #[derive(Debug)]
@@ -60,6 +63,7 @@ bitmask! {
         Md5ChecksumPresent = 0x00004000,
     }
 }
+*/
 
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -69,45 +73,52 @@ pub struct Md5Checksum {
     checksum: [u8; 2],
 }
 
+#[derive(Clone, Packed)]
+#[packed(little_endian, lsb0)]
+pub struct Block {
+    #[pkd(7, 0, 0, 7)]
+    magic_start: MagicStart,
+    
+    #[pkd(7, 0, 8, 11)]
+    pub flags: u32,//Flags,
 
-#[derive(Clone, PackedStruct)]
-//#[packed_struct(endian="lsb")]
-pub struct Data { 
-    // Unfortunately packed struct requires a number here, a const won't work
-    data: [u8; 476] 
+    #[pkd(7, 0, 12, 15)]
+    pub target_address: u32,
+
+    #[pkd(7, 0, 16, 19)]
+    pub payload_size: u32,
+
+    #[pkd(7, 0, 20, 23)]
+    pub block_number: u32,
+
+    #[pkd(7, 0, 24, 27)]
+    pub number_of_blocks: u32,
+
+    #[pkd(7, 0, 28, 31)]
+    pub file_size_or_family_id: u32,
+
+    #[pkd(7, 0, 32, 507)]
+    pub data: [u8; DATA_LENGTH],
+
+    #[pkd(7, 0, 508, 511)]
+    magic_end: MagicEnd,
 }
 
-impl Default for Data {
+impl Default for Block {
     fn default() -> Self {
         Self {
             data: [0; DATA_LENGTH],
+
+            magic_start: Default::default(),
+            flags: Default::default(), 
+            target_address: Default::default(),
+            payload_size: Default::default(),
+            block_number: Default::default(),
+            number_of_blocks: Default::default(),
+            file_size_or_family_id: Default::default(),
+            magic_end: Default::default(),
         }
     }
-}
-
-impl Deref for Data {
-    type Target=[u8; DATA_LENGTH];
-    fn deref(&self) -> &[u8; DATA_LENGTH] {
-        &self.data
-    }
-}
-
-#[derive(Clone, Default, PackedStruct)]
-#[packed_struct(endian="lsb")]
-pub struct Block {
-    #[packed_field(element_size_bytes="8")]
-    magic_start: MagicStart,
-    #[packed_field(element_size_bytes="4")]
-    pub flags: Flags,
-    pub target_address: u32,
-    pub payload_size: u32,
-    pub block_number: u32,
-    pub number_of_blocks: u32,
-    pub file_size_or_family_id: u32,
-    #[packed_field(element_size_bytes="476")]
-    pub data: Data,
-    #[packed_field(element_size_bytes="4")]
-    magic_end: MagicEnd,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -115,11 +126,16 @@ pub enum Error {
     DataTooLong,
     InsufficientPackedBytes,
     PackingError(PackingError),
+    IncorrectMagic,
 }
 
 impl From<PackingError> for Error {
     fn from(e: PackingError) -> Error {
-        Error::PackingError(e)
+        if e == PackingError::InsufficientBytes {
+            Error::InsufficientPackedBytes
+        } else {
+            Error::PackingError(e)
+        }
     }
 }
 
@@ -137,20 +153,24 @@ impl Block {
             .. Self::default()
         };
 
-        new_block.data.data[..data.len()].copy_from_slice(data);
+        new_block.data[..data.len()].copy_from_slice(data);
 
         Ok(new_block)
     }
 
-    pub fn pack(&self) -> [u8; 512] {
-        PackedStruct::pack(self)
+    pub fn pack(&self) -> Result<[u8; 512], Error> {
+        let mut ret = [0; Self::BYTES];
+        Packed::pack(self, &mut ret)?;
+        Ok(ret)
     }
 
     pub fn parse(data: &[u8]) -> Result<Self, Error> {
-        if data.len() < Self::BYTES {
-            Err(Error::InsufficientPackedBytes)?;
+        let unpacked = Self::unpack(data)?;
+        if unpacked.magic_start != MagicStart::default() ||
+           unpacked.magic_end != MagicEnd::default()
+        {
+            Err(Error::IncorrectMagic)?;
         }
-        // TODO: update packed struct macro to remove the need for this
-        Ok(Self::unpack(unsafe { &*(data as *const _ as *const _) })?)
+        Ok(unpacked)
     }
 }

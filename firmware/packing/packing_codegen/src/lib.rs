@@ -798,7 +798,7 @@ fn derive_struct(
             type Error = packing::Error;
             fn to_bytes<En: packing::Endian>(&self) -> Result<[u8; #min_len], Self::Error> {
                 let mut res = [0; #min_len];
-                self.pack(&mut res)?;
+                packing::Packed::pack(self, &mut res)?;
                 Ok(res)
             }
             fn from_bytes<En: packing::Endian>(bytes: [u8; #min_len]) -> Result<Self, Self::Error> {

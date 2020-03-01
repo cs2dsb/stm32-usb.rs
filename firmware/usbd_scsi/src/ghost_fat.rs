@@ -1,6 +1,7 @@
-
-use packed_struct_codegen::PackedStruct;
-use packed_struct::PackedStruct;
+use packing::{
+    Packed,
+    PackedSize,
+};
 
 use uf2::Block as Uf2Block;
 
@@ -20,31 +21,51 @@ const UF2_SIZE: u32 = 0x10000 * 2;
 const UF2_SECTORS: u32 = UF2_SIZE / (BLOCK_SIZE as u32);
 
 
-
-#[derive(Clone, Copy, PackedStruct, Default)]
-#[packed_struct(endian="lsb")]
-pub struct DirectoryEntry {
+#[derive(Clone, Copy, Default, Packed)]
+#[packed(little_endian, lsb0)]
+pub struct DirectoryEntry {    
+    #[pkd(7, 0, 0, 10)]
     pub name: [u8; 11],
     /*
         pub name: [u8; 8],
         pub ext: [u8; 3],
     */
+    #[pkd(7, 0, 11, 11)]
     pub attrs: u8,
+
+    #[pkd(7, 0, 12, 12)]
     _reserved: u8,
+
+    #[pkd(7, 0, 13, 13)]
     pub create_time_fine: u8,
+
+    #[pkd(7, 0, 14, 15)]
     pub create_time: u16,
+
+    #[pkd(7, 0, 16, 17)]
     pub create_date: u16,
+    
+    #[pkd(7, 0, 18, 19)]
     pub last_access_date: u16,
+    
+    #[pkd(7, 0, 20, 21)]
     pub high_start_cluster: u16,
+    
+    #[pkd(7, 0, 22, 23)]
     pub update_time: u16,
+    
+    #[pkd(7, 0, 24, 25)]
     pub update_date: u16,
+    
+    #[pkd(7, 0, 26, 27)]
     pub start_cluster: u16,
+    
+    #[pkd(7, 0, 28, 31)]
     pub size: u32,
 }
 
 
-#[derive(Clone, Copy, PackedStruct)]
-#[packed_struct(endian="lsb")]
+#[derive(Clone, Copy)]
 pub struct FatFile {
     pub name: [u8; 11],
     pub content: [u8; 255],
@@ -63,28 +84,67 @@ pub fn fat_files() -> [FatFile; 2] {
     [info, index]
 }
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug, PackedStruct)]
-#[packed_struct(endian="lsb")]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
+#[packed(little_endian, lsb0)]
 pub struct FatBootBlock {
+    #[pkd(7, 0, 0, 2)]
     pub jump_instruction: [u8; 3],
+
+    #[pkd(7, 0, 3, 10)]
     pub oem_info: [u8; 8],
+    
+    #[pkd(7, 0, 11, 12)]
     pub sector_size: u16,
+    
+    #[pkd(7, 0, 13, 13)]
     pub sectors_per_cluster: u8,
+    
+    #[pkd(7, 0, 14, 15)]
     pub reserved_sectors: u16,
+    
+    #[pkd(7, 0, 16, 16)]
     pub fat_copies: u8,
+    
+    #[pkd(7, 0, 17, 18)]
     pub root_directory_entries: u16,
+    
+    #[pkd(7, 0, 19, 20)]
     pub total_sectors16: u16,
+    
+    #[pkd(7, 0, 21, 21)]
     pub media_descriptor: u8,
+    
+    #[pkd(7, 0, 22, 23)]
     pub sectors_per_fat: u16,
+    
+    #[pkd(7, 0, 24, 25)]
     pub sectors_per_track: u16,
+    
+    #[pkd(7, 0, 26, 27)]
     pub heads: u16,
+    
+    #[pkd(7, 0, 28, 31)]
     pub hidden_sectors: u32,
+    
+    #[pkd(7, 0, 32, 35)]
     pub total_sectors32: u32,
+    
+    #[pkd(7, 0, 36, 36)]
     pub physical_drive_num: u8,
+    
+    #[pkd(7, 0, 37, 37)]
     _reserved: u8,
+    
+    #[pkd(7, 0, 38, 38)]
     pub extended_boot_sig: u8,
+    
+    #[pkd(7, 0, 39, 42)]
     pub volume_serial_number: u32,
+    
+    #[pkd(7, 0, 43, 53)]
     pub volume_label: [u8; 11],
+    
+    #[pkd(7, 0, 54, 61)]
     pub filesystem_identifier: [u8; 8],
 }
 
@@ -147,8 +207,7 @@ impl GhostFat {
    
         if lba == 0 {
             // Block 0 is the fat boot block
-            let packed = self.fat_boot_block.pack();
-            block[..packed.len()].copy_from_slice(&packed);
+            self.fat_boot_block.pack(&mut block[..FatBootBlock::BYTES]).unwrap();
             block[510] = 0x55;
             block[511] = 0xAA;
         } else if lba < START_ROOTDIR {
@@ -185,16 +244,15 @@ impl GhostFat {
                 let mut dir = DirectoryEntry::default();
                 dir.name.copy_from_slice(&self.fat_boot_block.volume_label);
                 dir.attrs = 0x28;
-                let packed = dir.pack();
-                let len = packed.len();
-                block[..len].copy_from_slice(&packed);
+                let len = DirectoryEntry::BYTES;
+                dir.pack(&mut block[..len]).unwrap();
                 dir.attrs = 0;
                 for (i, info) in self.fat_files.iter().enumerate() {
                     dir.size = info.content.len() as u32;
                     dir.start_cluster = i as u16 + 2;
                     dir.name.copy_from_slice(&info.name);
                     let start = (i+1) * len;
-                    block[start..(start + len)].copy_from_slice(&dir.pack());
+                    dir.pack(&mut block[start..(start+len)]).unwrap();
                 }
             }
         } else {

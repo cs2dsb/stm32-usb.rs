@@ -51,7 +51,7 @@ fn finalize(blocks: Vec<Block>) -> Vec<u8> {
         b.block_number = i as u32;
         b.number_of_blocks = n;
         trace!("{}/{}: 0x{:X?} {}", i, n, b.target_address, b.payload_size);
-        b.pack().to_vec()
+        b.pack().expect("Error packing block").to_vec()
     }).collect()
 }
 
