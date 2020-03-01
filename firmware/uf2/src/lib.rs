@@ -5,7 +5,7 @@ use packing::{
     Error as PackingError,
 };
 
-use bitmask::bitmask;
+//use bitmask::bitmask;
 
 pub const DATA_LENGTH: usize = 476;
 

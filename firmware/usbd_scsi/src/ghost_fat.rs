@@ -3,6 +3,11 @@ use packing::{
     PackedSize,
 };
 
+use crate::{
+    BlockDevice,
+    BlockDeviceError,
+};
+
 use uf2::Block as Uf2Block;
 
 #[allow(unused_imports)]
@@ -188,6 +193,22 @@ pub struct GhostFat {
     fat_boot_block: FatBootBlock,
     fat_files: [FatFile; 2],
 }
+
+impl BlockDevice for GhostFat {
+    const BLOCK_BYTES: usize = BLOCK_SIZE;
+    fn read_block(&self, lba: u32, block: &mut [u8]) -> Result<(), BlockDeviceError> {
+        self.read_block(lba, block);
+        Ok(())
+    }
+    fn write_block(&mut self, lba: u32, block: &[u8]) -> Result<(), BlockDeviceError> {
+        self.write_block(lba, block);
+        Ok(())
+    }
+    fn max_lba(&self) -> u32 {
+        NUM_FAT_BLOCKS - 1
+    }
+}
+
 
 impl GhostFat {
     pub fn new() -> GhostFat {

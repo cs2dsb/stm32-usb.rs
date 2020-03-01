@@ -31,6 +31,8 @@ use super::{
 const REQ_GET_MAX_LUN: u8 = 0xFE;
 const REQ_BULK_ONLY_RESET: u8 = 0xFF;
 
+const BUFFER_BYTES: usize = 512;
+
 #[derive(Debug)]
 pub enum Error {
     UsbError(UsbError),
@@ -130,7 +132,7 @@ pub struct BulkOnlyTransport<'a, B: UsbBus> {
     command_status_wrapper: CommandStatusWrapper,
 
     /// The buffer, used for both reading and writing
-    buffer: [u8; 512],
+    buffer: [u8; BUFFER_BYTES],
 
     /// The next free index in the buffer
     buffer_i: usize,
@@ -148,6 +150,7 @@ pub struct BulkOnlyTransport<'a, B: UsbBus> {
 }
 
 impl<B: UsbBus> BulkOnlyTransport<'_, B> {
+    pub const BUFFER_BYTES: usize = BUFFER_BYTES;
     pub fn new(
         alloc: &UsbBusAllocator<B>, 
         max_packet_size: u16, 
@@ -166,7 +169,7 @@ impl<B: UsbBus> BulkOnlyTransport<'_, B> {
             state: State::WaitingForCommand,
             command_block_wrapper: Default::default(),
             command_status_wrapper: Default::default(),
-            buffer: [0; 512],
+            buffer: [0; BUFFER_BYTES],
             buffer_i: 0,
             data_i: 0,
             last_packet_full: false,

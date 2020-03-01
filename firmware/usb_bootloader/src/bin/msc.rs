@@ -32,7 +32,11 @@ use usb_device::{
 //use usb_device::prelude::*;
 use usbd_serial::{CdcAcmClass, SerialPort, USB_CLASS_CDC};
 use usbd_mass_storage::USB_CLASS_MSC;
-use usbd_scsi::Scsi;
+use usbd_scsi::{
+    Scsi,
+    GhostFat,
+    BlockDevice,
+};
 use itm_logger::*;
 
 // VID and PID are from dapboot bluepill bootloader
@@ -125,7 +129,7 @@ const APP: () = {
     struct Resources {
         usb_dev: UsbDevice<'static, UsbBusType>,
         serial: SerialPort<'static, UsbBusType>,
-        scsi: Scsi<'static, UsbBusType>,
+        scsi: Scsi<'static, UsbBusType, GhostFat>,
         #[init([0; 256])]
         buf: [u8; 256],
         #[init(0)]
@@ -186,8 +190,9 @@ const APP: () = {
 
         *USB_BUS = Some(UsbBus::new(usb));
 
+        let ghost_fat = GhostFat::new();
         let serial = SerialPort::new(USB_BUS.as_ref().unwrap());
-        let scsi = Scsi::new(USB_BUS.as_ref().unwrap(), 64);
+        let scsi = Scsi::new(USB_BUS.as_ref().unwrap(), 64, ghost_fat);
         
         // Fetch the serial info from the device electronic signature registers 
         // and convert it to a utf string
@@ -222,7 +227,7 @@ const APP: () = {
 fn usb_poll<B: bus::UsbBus>(
     usb_dev: &mut UsbDevice<'static, B>,
     serial: &mut SerialPort<'static, B>,
-    scsi: &mut Scsi<'static, B>,
+    scsi: &mut Scsi<'static, B, GhostFat>,
     _buf: &mut [u8],
     _buf_i: &mut usize,
 ) {

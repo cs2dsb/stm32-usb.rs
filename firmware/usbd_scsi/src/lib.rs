@@ -1,10 +1,13 @@
 #![no_std]
 
 mod scsi;
-mod ghost_fat;
-
 pub use scsi::*;
+
+mod ghost_fat;
 pub use ghost_fat::*;
+
+mod block_device;
+pub use block_device::*;
 
 mod logging {
     pub use itm_logger::*;
