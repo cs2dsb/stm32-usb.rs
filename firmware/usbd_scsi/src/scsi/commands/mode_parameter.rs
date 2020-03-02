@@ -2,7 +2,7 @@ use packing::{
     Packed,
     PackedSize,
 };
-use crate::scsi::commands::medium_type::MediumType;
+use crate::scsi::enums::MediumType;
 
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
 #[packed(big_endian, lsb0)]

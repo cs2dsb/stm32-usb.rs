@@ -4,8 +4,8 @@ use crate::scsi::{
     commands::{
         Control,
         CommandLength,
-        page_control::PageControl,
     },
+    enums::PageControl,
 };
 
 

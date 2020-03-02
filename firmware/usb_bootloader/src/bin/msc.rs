@@ -192,7 +192,14 @@ const APP: () = {
 
         let ghost_fat = GhostFat::new();
         let serial = SerialPort::new(USB_BUS.as_ref().unwrap());
-        let scsi = Scsi::new(USB_BUS.as_ref().unwrap(), 64, ghost_fat);
+        let scsi = Scsi::new(
+            USB_BUS.as_ref().unwrap(), 
+            64,
+            ghost_fat,
+            "Fake Co.",
+            "Fake product",
+            "FK01",
+        );
         
         // Fetch the serial info from the device electronic signature registers 
         // and convert it to a utf string

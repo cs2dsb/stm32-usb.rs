@@ -17,17 +17,10 @@ use crate::{
     logging::*,
     block_device::BlockDevice,
     scsi::{
+        commands::*,
+        responses::*,
+        enums::*,
         Error,
-        Command,
-        InquiryResponse,
-        inquiry_response,
-        ModeParameterHeader6,
-        CachingModePage,
-        RequestSenseResponse,
-        ModeSenseXCommand,
-        PageControl,
-        CommandLength,
-        PageCode,
     },
 };
 
@@ -47,7 +40,31 @@ pub struct Scsi<'a, B: UsbBus, BD: BlockDevice> {
 }
 
 impl<B: UsbBus, BD: BlockDevice> Scsi<'_, B, BD> {
-    pub fn new(alloc: &UsbBusAllocator<B>, max_packet_size: u16, block_device: BD) -> Scsi<'_, B, BD> {
+    /// Creates a new Scsi block device
+    ///
+    /// `block_device` provides reading and writing of blocks to the underlying filesystem
+    /// `vendor_identification` is an ASCII string that forms part of the SCSI inquiry response. 
+    ///      Should come from [t10](https://www.t10.org/lists/2vid.htm). Any semi-unique non-blank
+    ///      string should work fine for local development. Panics if > 8 characters are supplied.
+    /// `product_identification` is an ASCII string that forms part of the SCSI inquiry response. 
+    ///      Vendor (probably you...) defined so pick whatever you want. Panics if > 16 characters
+    ///      are supplied.
+    /// `product_revision_level` is an ASCII string that forms part of the SCSI inquiry response. 
+    ///      Vendor (probably you...) defined so pick whatever you want. Typically a version number.
+    ///      Panics if > 4 characters are supplied.
+    pub fn new<V: AsRef<[u8]>, P: AsRef<[u8]>, R: AsRef<[u8]>> (
+        alloc: &UsbBusAllocator<B>, 
+        max_packet_size: u16, 
+        block_device: BD,
+        vendor_identification: V,
+        product_identification: P,
+        product_revision_level: R,
+    ) -> Scsi<'_, B, BD> {
+        let mut inquiry_response = InquiryResponse::default();
+        inquiry_response.set_vendor_identification(vendor_identification);
+        inquiry_response.set_product_identification(product_identification);
+        inquiry_response.set_product_revision_level(product_revision_level);
+
         //TODO: This is reasonable for FAT but not FAT32 or others. BOT buffer should probably be 
         //configurable from here, perhaps passing in BD::BLOCK_BYTES.max(BOT::MIN_BUFFER) or something 
         assert!(BD::BLOCK_BYTES <= BulkOnlyTransport::<B>::BUFFER_BYTES);
@@ -59,7 +76,7 @@ impl<B: UsbBus, BD: BlockDevice> Scsi<'_, B, BD> {
                 0,
             ),
             current_command: Command::None,
-            inquiry_response: inquiry_response(),
+            inquiry_response,
             request_sense_response: Default::default(),
             block_device,
             lba: 0,
@@ -67,28 +84,16 @@ impl<B: UsbBus, BD: BlockDevice> Scsi<'_, B, BD> {
         }
     }
 
-    fn get_new_command(&mut self) -> bool {
+    fn get_new_command(&mut self) -> Result<bool, Error> {
         if self.current_command != Command::None {
-            return false;
-        }
-
-        if let Some(cbw) = self.inner.get_current_command() {
-            // TODO: handle failure better
-            match Command::extract_from_cbw(cbw) {
-                Ok(c) => {
-                    self.current_command = c;
-                    true
-                },
-                Err(e) => {
-                    error!("Failed to extract scsi command with op code: 0x{:X?}: {:?}",
-                        cbw.data[0],
-                        e,
-                    );
-                    false
-                },
-            }
+            Ok(false)
         } else {
-            false
+            if let Some(cbw) = self.inner.get_current_command() {
+                self.current_command = Command::extract_from_cbw(cbw)?;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
         }
     }
 
@@ -117,7 +122,7 @@ impl<B: UsbBus, BD: BlockDevice> Scsi<'_, B, BD> {
             Err(UsbError::WouldBlock)?;
         }
 
-        let new_command = self.get_new_command();
+        let new_command = self.get_new_command()?;
 
         let mut err = false;
         let mut done = true;
@@ -133,19 +138,14 @@ impl<B: UsbBus, BD: BlockDevice> Scsi<'_, B, BD> {
             Command::PreventAllowMediumRemoval(_) => { info!("PreventAllowMediumRemoval"); },
             Command::ReadCapacity(_)  => {
                 let max_lba = self.block_device.max_lba();
-                let block_size = BD::BLOCK_BYTES;
-
-                let cap_len = 8;
+                let block_size = BD::BLOCK_BYTES as u32;
+                let cap = ReadCapacity10Response {
+                    max_lba,
+                    block_size,
+                };
                 
-                let buf = self.inner.take_buffer_space(cap_len)?;
-                buf[0] = ((max_lba >> 24) & 0xFF) as u8;
-                buf[1] = ((max_lba >> 16) & 0xFF) as u8;
-                buf[2] = ((max_lba >> 8) & 0xFF) as u8;
-                buf[3] = ((max_lba >> 0) & 0xFF) as u8;
-                buf[4] = ((block_size >> 24) & 0xFF) as u8;
-                buf[5] = ((block_size >> 16) & 0xFF) as u8;
-                buf[6] = ((block_size >> 8) & 0xFF) as u8;
-                buf[7] = ((block_size >> 0) & 0xFF) as u8;
+                let buf = self.inner.take_buffer_space(ReadCapacity10Response::BYTES)?;
+                cap.pack(buf)?;
             },
             Command::ModeSense(ModeSenseXCommand { command_length: CommandLength::C6, page_control: PageControl::CurrentValues })  => {
                 

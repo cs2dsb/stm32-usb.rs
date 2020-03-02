@@ -3,6 +3,7 @@ use packing::Packed;
 use usbd_bulk_only_transport::CommandBlockWrapper as CommandBlockWrapper_NEW;
 use crate::scsi::{
     commands::*,
+    enums::*,
     Error,
     packing::ParsePackedStruct,
 };
