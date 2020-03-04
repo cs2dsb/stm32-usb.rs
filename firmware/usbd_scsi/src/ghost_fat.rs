@@ -10,8 +10,14 @@ use crate::{
 
 use uf2::Block as Uf2Block;
 
+use core::ops::RangeInclusive;
+
 #[allow(unused_imports)]
-use itm_logger::*;
+use crate::logging::*;
+
+// 64kb left for bootloader since logging is huge
+// TODO: Needs to be configurable, can this be passed in from a linker section maybe?
+const UF2_FLASH_START: u32 = 0x08010000;
 
 const BLOCK_SIZE: usize = 512;
 const NUM_FAT_BLOCKS: u32 = 8000;
@@ -25,6 +31,116 @@ const START_CLUSTERS: u32 = START_ROOTDIR + ROOT_DIR_SECTORS;
 const UF2_SIZE: u32 = 0x10000 * 2;
 const UF2_SECTORS: u32 = UF2_SIZE / (BLOCK_SIZE as u32);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlashError {
+    /// Indicates a request attempted to erase an address that would potentially cause 
+    /// data loss because the address doesn't align with a page boundary
+    UnsafeErase,
+
+    /// Hardware didn't behave as expected, unrecoverable
+    HardwareError,
+
+    /// Reading back value after write returned an unexpected value
+    WriteError,
+
+    /// Reading back after erase indicated the erase failed - stm32 datasheet implies this is possible
+    /// but doesn't say under what circumstances. Is the flash knackered if this happens?
+    EraseError,
+
+    /// Page address is invalid or out of range
+    InvalidAddress,
+}
+
+pub trait Flash {
+    // Return the page size in bytes
+    fn page_size(&self) -> u32;
+
+    fn address_range(&self) -> RangeInclusive<u32>;
+
+    // Return a mutable ref to the persistent page buffer
+    fn page_buffer(&mut self) -> &mut [u8];
+
+    // Return the last read page address
+    fn current_page(&self) -> &Option<u32>;
+
+    // Unlock the flash for erasing/writing
+    fn unlock_flash(&mut self) -> Result<(), FlashError>;
+
+    // Lock the flash to prevent erasing/writing
+    fn lock_flash(&mut self) -> Result<(), FlashError>;
+
+    // Is the flash busy?
+    fn is_operation_pending(&self) -> bool;
+
+    // Wait until is_operation_pending is false, no timeout implemented
+    fn busy_wait(&self) {
+        while self.is_operation_pending() {}
+    }
+
+    // Erase the page at the given address. Don't check if erase is necessary, that's done at a higher level
+    fn erase_page(&mut self, page_address: u32) -> Result<(), FlashError>;
+
+    // Check if the page is empty
+    fn is_page_erased(&mut self, page_address: u32) -> bool;
+
+    // Read a whole page into page buffer
+    fn read_page(&mut self, page_address: u32) -> Result<(), FlashError>;
+
+    /// Write a whole page from page buffer
+    ///
+    /// Implementor should probably read each half-word (or whatever the flash write size is) and
+    /// compare it to the data being written before writing to reduce flash aging.
+    fn write_page(&mut self) -> Result<(), FlashError>;
+
+    /// Gets the page address for a given address
+    fn page_address(&self, address: u32) -> u32 {
+        address & !(self.page_size() - 1)
+    }
+
+    /// Save the current page to flash. Erase and write only if necessary.
+    fn flush_page(&mut self) -> Result<(), FlashError>;
+
+    /// Write the provided bytes to flash at the provided address
+    ///
+    /// Each touched page will be read into a buffer and flushed back to flash when the next page
+    /// is modified or at the end of the function. Page erasing is only done if data is found that
+    /// is different to what is currently on flash and can't be ANDed onto flash without an erase. 
+    /// i.e. Flash of 0x12FF and 0x1234 COULD be written without an erase.
+    fn write_bytes(&mut self, address: u32, bytes: &[u8]) -> Result<(), FlashError> {
+        let start_page = self.page_address(address);
+        let end_page = self.page_address(address + bytes.len() as u32 - 1);
+        let page_size = self.page_size() as usize;
+
+        for page in (start_page..=end_page).step_by(page_size) {
+            if let Some(cp) = self.current_page() {
+                // If there's a page in the buffer and it's not the current one, flush it
+                if *cp != page {
+                    self.flush_page()?;
+                    self.read_page(page)?;
+                }
+            } else {
+                self.read_page(page)?;
+            }
+
+            if page < address {
+                let offset = (address - page) as usize;
+                let count = (page_size - offset).min(bytes.len());
+                self.page_buffer()[offset..(offset+count)].copy_from_slice(&bytes[..count]);
+            } else {
+                let offset = (page - address) as usize;
+                let count = (bytes.len() - offset).min(page_size);
+                self.page_buffer()[..count].copy_from_slice(&bytes[offset..(offset + count)]);
+            }
+        }
+        // Flush the last page 
+        self.flush_page()?;
+
+        Ok(())
+    }
+
+    /// Read bytes from the provided address
+    fn read_bytes(&self, address: u32, bytes: &mut [u8]) -> Result<(), FlashError>;
+}
 
 #[derive(Clone, Copy, Default, Packed)]
 #[packed(little_endian, lsb0)]
@@ -70,23 +186,59 @@ pub struct DirectoryEntry {
 }
 
 
-#[derive(Clone, Copy)]
-pub struct FatFile {
-    pub name: [u8; 11],
-    pub content: [u8; 255],
+pub enum FatFileContent {
+    Static([u8; 255]),
+    Uf2,
 }
 
-pub fn fat_files() -> [FatFile; 2] {
-    let mut info = FatFile { name: [0x20; 11], content: [0x20; 255] };
-    let mut index = FatFile { name: [0x20; 11], content: [0x20; 255] };
+pub struct FatFile {
+    pub name: [u8; 11],
+    pub content: FatFileContent,
+}
 
-    info.name.copy_from_slice("INFO_UF2TXT".as_bytes());
-    info.content[..60].copy_from_slice("UF2 Bootloader 1.2.3\r\nModel: BluePill\r\nBoard-ID: spunk_123\r\n".as_bytes());
+const ASCII_SPACE: u8 = 0x20;
+
+impl FatFile {
+    fn with_content<N: AsRef<[u8]>, T: AsRef<[u8]>>(name_: N, content_: T) -> Self {
+        let mut name = [0; 11];
+        let mut content = [0; 255];
+
+        let bytes = name_.as_ref();
+        let l = bytes.len().min(name.len());
+        name[..l].copy_from_slice(&bytes[..l]);
+        for b in name[l..].iter_mut() {
+            *b = ASCII_SPACE
+        }
+
+        let bytes = content_.as_ref();
+        let l = bytes.len().min(content.len());
+        content[..l].copy_from_slice(&bytes[..l]);
+        for b in content[l..].iter_mut() {
+            *b = ASCII_SPACE
+        }
+
+        Self {
+            name,
+            content: FatFileContent::Static(content),
+        }
+    }
+}
+
+const UF2_INDEX: usize = 2;
+
+pub fn fat_files() -> [FatFile; 3] {
+    let info = FatFile::with_content("INFO_UF2TXT", "UF2 Bootloader 1.2.3\r\nModel: BluePill\r\nBoard-ID: xyz_123\r\n");
+    let index = FatFile::with_content("INDEX   HTM", "<!doctype html>\n<html><body><script>\nlocation.replace(INDEX_URL);\n</script></body></html>\n");
+
+    let mut name = [ASCII_SPACE; 11];
+    name.copy_from_slice("CURRENT UF2".as_bytes());
+
+    let current_uf2 = FatFile {
+        name,
+        content: FatFileContent::Uf2,
+    };
     
-    index.name.copy_from_slice("INDEX   HTM".as_bytes());
-    index.content[..90].copy_from_slice("<!doctype html>\n<html><body><script>\nlocation.replace(INDEX_URL);\n</script></body></html>\n".as_bytes());
-
-    [info, index]
+    [info, index, current_uf2]
 }
 
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
@@ -189,12 +341,13 @@ pub fn fat_boot_block() -> FatBootBlock {
 
 
 /// # Dummy fat implementation that provides a [UF2 bootloader](https://github.com/microsoft/uf2)
-pub struct GhostFat {
+pub struct GhostFat<F: Flash> {
     fat_boot_block: FatBootBlock,
-    fat_files: [FatFile; 2],
+    fat_files: [FatFile; 3],
+    flash: F,
 }
 
-impl BlockDevice for GhostFat {
+impl<F: Flash> BlockDevice for GhostFat<F> {
     const BLOCK_BYTES: usize = BLOCK_SIZE;
     fn read_block(&self, lba: u32, block: &mut [u8]) -> Result<(), BlockDeviceError> {
         self.read_block(lba, block);
@@ -210,11 +363,12 @@ impl BlockDevice for GhostFat {
 }
 
 
-impl GhostFat {
-    pub fn new() -> GhostFat {
+impl<F: Flash> GhostFat<F> {
+    pub fn new(flash: F) -> Self {
         GhostFat {
             fat_boot_block: fat_boot_block(),
             fat_files: fat_files(),
+            flash,
         }
     }
 
@@ -269,20 +423,39 @@ impl GhostFat {
                 dir.pack(&mut block[..len]).unwrap();
                 dir.attrs = 0;
                 for (i, info) in self.fat_files.iter().enumerate() {
-                    dir.size = info.content.len() as u32;
-                    dir.start_cluster = i as u16 + 2;
                     dir.name.copy_from_slice(&info.name);
+                    dir.start_cluster = i as u16 + 2;
+                    dir.size = match info.content {
+                        FatFileContent::Static(content) => content.len() as u32,
+                        FatFileContent::Uf2 => {
+                            let address_range = self.flash.address_range();
+                            address_range.end() - address_range.start()
+                        },
+                    };
                     let start = (i+1) * len;
                     dir.pack(&mut block[start..(start+len)]).unwrap();
                 }
             }
         } else {
             let section_index = (lba - START_CLUSTERS) as usize;
-            if section_index < self.fat_files.len() {
-                let info = self.fat_files[section_index];
-                block[..info.content.len()].copy_from_slice(&info.content);
+
+            if section_index < UF2_INDEX {//self.fat_files.len() {
+                let info = &self.fat_files[section_index];
+                if let FatFileContent::Static(content) = &info.content {
+                    block[..content.len()].copy_from_slice(content);
+                }
             } else {
                 //UF2
+                info!("UF2: {}", section_index);
+
+                let uf2_block = (section_index - 2) as u32;
+                let address = UF2_FLASH_START + uf2_block * (BLOCK_SIZE as u32);
+
+                let address_range = self.flash.address_range();
+                // TODO: Read partial block?
+                if address_range.contains(&address) && address_range.contains(&(address + BLOCK_SIZE as u32)) {
+                    self.flash.read_bytes(address, block).unwrap();
+                }                
             }
         }
     }
