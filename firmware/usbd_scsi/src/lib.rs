@@ -9,6 +9,9 @@ pub use ghost_fat::*;
 mod block_device;
 pub use block_device::*;
 
+mod flash;
+pub use flash::*;
+
 mod logging {
     pub use itm_logger::*;
 

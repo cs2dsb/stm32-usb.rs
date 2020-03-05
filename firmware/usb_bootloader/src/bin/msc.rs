@@ -51,7 +51,7 @@ use usbd_scsi::{
     GhostFat,
     BlockDevice,
     Flash,
-    FlashError,
+    BlockDeviceError,
 };
 use itm_logger::*;
 
@@ -159,7 +159,7 @@ impl Flash for FlashWrapper {
     }
 
     // Unlock the flash for erasing/writing
-    fn unlock_flash(&mut self) -> Result<(), FlashError> {
+    fn unlock_flash(&mut self) -> Result<(), BlockDeviceError> {
         const KEY1: u32 = 0x45670123;
         const KEY2: u32 = 0xCDEF89AB;
 
@@ -175,14 +175,14 @@ impl Flash for FlashWrapper {
 
         if flash.cr.read().lock().bit_is_set() {
             error!("Flash still locked after performing unlock sequence");
-            Err(FlashError::HardwareError)?;
+            Err(BlockDeviceError::HardwareError)?;
         }
 
         Ok(())
     }
 
     // Lock the flash to prevent erasing/writing
-    fn lock_flash(&mut self) -> Result<(), FlashError> {
+    fn lock_flash(&mut self) -> Result<(), BlockDeviceError> {
         let flash = unsafe {
             &(*FLASH::ptr())
         };
@@ -212,7 +212,7 @@ impl Flash for FlashWrapper {
     }
 
     // Erase the page at the given address. Don't check if erase is necessary, that's done at a higher level
-    fn erase_page(&mut self, page_address: u32) -> Result<(), FlashError> {
+    fn erase_page(&mut self, page_address: u32) -> Result<(), BlockDeviceError> {
         let flash = unsafe {
             &(*FLASH::ptr())
         };
@@ -238,7 +238,7 @@ impl Flash for FlashWrapper {
         // Check the erase worked
         if !self.is_page_erased(page_address) {
             error!("Page erase failed");
-            Err(FlashError::EraseError)?;
+            Err(BlockDeviceError::EraseError)?;
         }
             
         info!("erased 0x{:X?}", page_address);  
@@ -247,12 +247,12 @@ impl Flash for FlashWrapper {
         Ok(())
     }
 
-    fn read_bytes(&self, address: u32, bytes: &mut [u8]) -> Result<(), FlashError> {
+    fn read_bytes(&self, address: u32, bytes: &mut [u8]) -> Result<(), BlockDeviceError> {
         let range = self.address_range();
         for (i, b) in bytes.iter_mut().enumerate() {
             let hw_addr = address + i as u32;
             if !range.contains(&hw_addr) {
-                Err(FlashError::InvalidAddress)?;
+                Err(BlockDeviceError::InvalidAddress)?;
             }
             *b = unsafe { read_volatile(hw_addr as *const u8) };
         }
@@ -260,16 +260,16 @@ impl Flash for FlashWrapper {
         Ok(())
     }
 
-    fn read_page(&mut self, page_address: u32) -> Result<(), FlashError> {
+    fn read_page(&mut self, page_address: u32) -> Result<(), BlockDeviceError> {
         if page_address != self.page_address(page_address) {
-            Err(FlashError::InvalidAddress)?;
+            Err(BlockDeviceError::InvalidAddress)?;
         }
         let range = self.address_range();
         let buffer = self.page_buffer();
         for (i, half_word) in buffer.chunks_exact_mut(2).enumerate() {
             let hw_addr = page_address + i as u32 * 2;
             if !range.contains(&hw_addr) {
-                Err(FlashError::InvalidAddress)?;
+                Err(BlockDeviceError::InvalidAddress)?;
             }
             let value = unsafe { read_volatile(hw_addr as *const [u8; 2]) };
             half_word.copy_from_slice(&value);
@@ -280,12 +280,12 @@ impl Flash for FlashWrapper {
         Ok(())
     }
 
-    fn write_page(&mut self) -> Result<(), FlashError> {
+    fn write_page(&mut self) -> Result<(), BlockDeviceError> {
         let flash = unsafe {
             &(*FLASH::ptr())
         };
 
-        let page_address = self.current_page.ok_or(FlashError::InvalidAddress)?;
+        let page_address = self.current_page.ok_or(BlockDeviceError::InvalidAddress)?;
 
         // Make sure the flash is unlocked
         self.unlock_flash()?;
@@ -298,7 +298,7 @@ impl Flash for FlashWrapper {
             let hw_addr = page_address + i as u32 * 2;
             
             if !range.contains(&hw_addr) {
-                Err(FlashError::InvalidAddress)?;
+                Err(BlockDeviceError::InvalidAddress)?;
             }
 
             half_word.copy_from_slice(c);
@@ -325,7 +325,7 @@ impl Flash for FlashWrapper {
 
                 if new_value != half_word {
                     error!("write to 0x{:X?} failed", hw_addr);  
-                    Err(FlashError::WriteError)?;
+                    Err(BlockDeviceError::WriteError)?;
                 }
 
                 info!("write to 0x{:X?} ok", hw_addr);  
@@ -336,8 +336,8 @@ impl Flash for FlashWrapper {
         Ok(())
     }
 
-    fn flush_page(&mut self) -> Result<(), FlashError> {
-        let page_address = self.current_page.ok_or(FlashError::InvalidAddress)?;
+    fn flush_page(&mut self) -> Result<(), BlockDeviceError> {
+        let page_address = self.current_page.ok_or(BlockDeviceError::InvalidAddress)?;
 
         let mut erase_needed = false;
         let mut write_needed = false;

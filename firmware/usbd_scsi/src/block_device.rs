@@ -1,5 +1,19 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockDeviceError {
+    /// Hardware didn't behave as expected, unrecoverable
+    HardwareError,
+
+    /// Error during writing; most likely value read back after write was wrong
+    WriteError,
+
+    /// Error during erase; most likely value read back after erase was wrong
+    /// 
+    /// STM32 flash programming app note implies this is possible but doesn't say under what 
+    /// circumstances. Is the flash knackered if this happens?
+    EraseError,
+
+    /// Address is invalid or out of range
+    InvalidAddress,
 }
 
 pub trait BlockDevice {

@@ -6,11 +6,10 @@ use packing::{
 use crate::{
     BlockDevice,
     BlockDeviceError,
+    Flash,
 };
 
 use uf2::Block as Uf2Block;
-
-use core::ops::RangeInclusive;
 
 #[allow(unused_imports)]
 use crate::logging::*;
@@ -32,117 +31,6 @@ const START_ROOTDIR: u32 = START_FAT1 + SECTORS_PER_FAT;
 const START_CLUSTERS: u32 = START_ROOTDIR + ROOT_DIR_SECTORS;
 const UF2_SIZE: u32 = 0x10000 * 2;
 const UF2_SECTORS: u32 = UF2_SIZE / (BLOCK_SIZE as u32);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FlashError {
-    /// Indicates a request attempted to erase an address that would potentially cause 
-    /// data loss because the address doesn't align with a page boundary
-    UnsafeErase,
-
-    /// Hardware didn't behave as expected, unrecoverable
-    HardwareError,
-
-    /// Reading back value after write returned an unexpected value
-    WriteError,
-
-    /// Reading back after erase indicated the erase failed - stm32 datasheet implies this is possible
-    /// but doesn't say under what circumstances. Is the flash knackered if this happens?
-    EraseError,
-
-    /// Page address is invalid or out of range
-    InvalidAddress,
-}
-
-pub trait Flash {
-    // Return the page size in bytes
-    fn page_size(&self) -> u32;
-
-    fn address_range(&self) -> RangeInclusive<u32>;
-
-    // Return a mutable ref to the persistent page buffer
-    fn page_buffer(&mut self) -> &mut [u8];
-
-    // Return the last read page address
-    fn current_page(&self) -> &Option<u32>;
-
-    // Unlock the flash for erasing/writing
-    fn unlock_flash(&mut self) -> Result<(), FlashError>;
-
-    // Lock the flash to prevent erasing/writing
-    fn lock_flash(&mut self) -> Result<(), FlashError>;
-
-    // Is the flash busy?
-    fn is_operation_pending(&self) -> bool;
-
-    // Wait until is_operation_pending is false, no timeout implemented
-    fn busy_wait(&self) {
-        while self.is_operation_pending() {}
-    }
-
-    // Erase the page at the given address. Don't check if erase is necessary, that's done at a higher level
-    fn erase_page(&mut self, page_address: u32) -> Result<(), FlashError>;
-
-    // Check if the page is empty
-    fn is_page_erased(&mut self, page_address: u32) -> bool;
-
-    // Read a whole page into page buffer
-    fn read_page(&mut self, page_address: u32) -> Result<(), FlashError>;
-
-    /// Write a whole page from page buffer
-    ///
-    /// Implementor should probably read each half-word (or whatever the flash write size is) and
-    /// compare it to the data being written before writing to reduce flash aging.
-    fn write_page(&mut self) -> Result<(), FlashError>;
-
-    /// Gets the page address for a given address
-    fn page_address(&self, address: u32) -> u32 {
-        address & !(self.page_size() - 1)
-    }
-
-    /// Save the current page to flash. Erase and write only if necessary.
-    fn flush_page(&mut self) -> Result<(), FlashError>;
-
-    /// Write the provided bytes to flash at the provided address
-    ///
-    /// Each touched page will be read into a buffer and flushed back to flash when the next page
-    /// is modified or at the end of the function. Page erasing is only done if data is found that
-    /// is different to what is currently on flash and can't be ANDed onto flash without an erase. 
-    /// i.e. Flash of 0x12FF and 0x1234 COULD be written without an erase.
-    fn write_bytes(&mut self, address: u32, bytes: &[u8]) -> Result<(), FlashError> {
-        let start_page = self.page_address(address);
-        let end_page = self.page_address(address + bytes.len() as u32 - 1);
-        let page_size = self.page_size() as usize;
-
-        for page in (start_page..=end_page).step_by(page_size) {
-            if let Some(cp) = self.current_page() {
-                // If there's a page in the buffer and it's not the current one, flush it
-                if *cp != page {
-                    self.flush_page()?;
-                    self.read_page(page)?;
-                }
-            } else {
-                self.read_page(page)?;
-            }
-
-            if page < address {
-                let offset = (address - page) as usize;
-                let count = (page_size - offset).min(bytes.len());
-                self.page_buffer()[offset..(offset+count)].copy_from_slice(&bytes[..count]);
-            } else {
-                let offset = (page - address) as usize;
-                let count = (bytes.len() - offset).min(page_size);
-                self.page_buffer()[..count].copy_from_slice(&bytes[offset..(offset + count)]);
-            }
-        }
-        // Flush the last page 
-        self.flush_page()?;
-
-        Ok(())
-    }
-
-    /// Read bytes from the provided address
-    fn read_bytes(&self, address: u32, bytes: &mut [u8]) -> Result<(), FlashError>;
-}
 
 #[derive(Clone, Copy, Default, Packed)]
 #[packed(little_endian, lsb0)]
@@ -352,29 +240,6 @@ pub struct GhostFat<F: Flash> {
 impl<F: Flash> BlockDevice for GhostFat<F> {
     const BLOCK_BYTES: usize = BLOCK_SIZE;
     fn read_block(&self, lba: u32, block: &mut [u8]) -> Result<(), BlockDeviceError> {
-        self.read_block(lba, block);
-        Ok(())
-    }
-    fn write_block(&mut self, lba: u32, block: &[u8]) -> Result<(), BlockDeviceError> {
-        self.write_block(lba, block);
-        Ok(())
-    }
-    fn max_lba(&self) -> u32 {
-        NUM_FAT_BLOCKS - 1
-    }
-}
-
-
-impl<F: Flash> GhostFat<F> {
-    pub fn new(flash: F) -> Self {
-        GhostFat {
-            fat_boot_block: fat_boot_block(),
-            fat_files: fat_files(),
-            flash,
-        }
-    }
-
-    pub fn read_block(&self, lba: u32, block: &mut [u8]) {
         assert_eq!(block.len(), BLOCK_SIZE);
 
         info!("GhostFAT reading block: 0x{:X?}", lba);
@@ -470,19 +335,26 @@ impl<F: Flash> GhostFat<F> {
                 }                
             }
         }
+        Ok(())
     }
-
-    pub fn write_block(&mut self, lba: u32, block: &[u8]) {
+    fn write_block(&mut self, lba: u32, block: &[u8]) -> Result<(), BlockDeviceError> {
         info!("GhostFAT writing block: 0x{:X?}", lba);
+
+        //TODO: Should BDE have an error to represent this kind of protocol error?
+        //      It likely doesn't matter as FAT/SCSI/USB doesn't have a nice way to report
+        //      a user facing error. The best we can manage is something like a write error
+        //      or phase error. Some DFU firmwares report back errors by creating a file 
+        //      called error.txt in the root. Could be an option but it's not part of UF2.
+        const PROTOCOL_ERROR: Result<(), BlockDeviceError> = Err(BlockDeviceError::WriteError);
 
         if lba < (START_CLUSTERS + self.fat_files.len() as u32) {
             info!("    GhostFAT skipping non-UF2 area");
-            return;
+            return Ok(());
         }
 
         if block.len() < Uf2Block::BYTES {
             warn!("    GhostFAT attempt to write to UF2 area with < 512 byte block");
-            return;
+            return PROTOCOL_ERROR;
         }
         assert_eq!(block.len(), Uf2Block::BYTES);
         
@@ -490,17 +362,31 @@ impl<F: Flash> GhostFat<F> {
             uf2
         } else {
             warn!("   GhostFAT failed to parse as UF2");
-            return;
+            return PROTOCOL_ERROR;
         };
 
         if !uf2_family_is_correct(&uf2) {
             warn!("   GhostFAT UF2 family id was wrong");
-            return;
+            return PROTOCOL_ERROR;
         }
 
 
         info!("   GhostFAT writing {} bytes of UF2 block at 0x{:X?}", uf2.payload_size, uf2.target_address);          
-        self.flash.write_bytes(uf2.target_address, &uf2.data[..uf2.payload_size as usize]).unwrap();
+        self.flash.write_bytes(uf2.target_address, &uf2.data[..uf2.payload_size as usize])
+    }
+    fn max_lba(&self) -> u32 {
+        NUM_FAT_BLOCKS - 1
+    }
+}
+
+
+impl<F: Flash> GhostFat<F> {
+    pub fn new(flash: F) -> Self {
+        GhostFat {
+            fat_boot_block: fat_boot_block(),
+            fat_files: fat_files(),
+            flash,
+        }
     }
 }
 

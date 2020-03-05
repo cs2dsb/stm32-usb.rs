@@ -38,7 +38,6 @@ pub enum Error {
     UsbError(UsbError),
     PackingError(PackingError),
     DataError,
-    InsufficientBufferAvailable,
 }
 
 impl From<UsbError> for Error {

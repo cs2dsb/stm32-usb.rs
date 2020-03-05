@@ -137,22 +137,6 @@ fn impl_asc_list_to_enum(input: &AscEnum) -> SynResult<impl Into<TokenStream>> {
         }
     });
 
-    let quoted_from_str = entries.iter().map(|e| {
-        let variant_name_ident = format_ident!("{}", e.name);
-        let variant_name = &e.name;
-        quote! {            
-            #variant_name => Some(#name::#variant_name_ident)
-        }
-    });
-
-    let quoted_from_str_lower = entries.iter().map(|e| {
-        let variant_name_ident = format_ident!("{}", e.name);
-        let variant_name = &e.name.to_lowercase().to_string();
-        quote! {            
-            #variant_name => Some(#name::#variant_name_ident)
-        }
-    });
-
     let result = quote! {
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         #visibility enum #name {
@@ -184,31 +168,22 @@ fn impl_asc_list_to_enum(input: &AscEnum) -> SynResult<impl Into<TokenStream>> {
                 }
             }
         }
-        impl packed_struct::PrimitiveEnum for #name {
-            type Primitive = u16;
-            fn from_primitive(val: Self::Primitive) -> Option<Self> {
-                let asc = ((val >> 8) & 0xFF) as u8;
-                let ascq = ((val >> 0) & 0xFF) as u8;
-                Self::from(asc, ascq)
+
+        impl packing::PackedSize for #name {
+            const BYTES: usize = 2;
+        }
+
+        impl packing::PackedBytes<[u8; 2]> for #name {
+            type Error = packing::Error;
+            fn to_bytes<En: packing::Endian>(&self) -> Result<[u8; 2], Self::Error> {
+                Ok([self.asc(), self.ascq()])
             }
-            fn to_primitive(&self) -> Self::Primitive {
-                (self.asc() as u16) << 8 | (self.ascq() as u16)
-            }
-            fn from_str(s: &str) -> Option<Self> {
-                match s {
-                    #( #quoted_from_str ),
-                    *,
-                    _ => None,
-                }
-            }
-            fn from_str_lower(s: &str) -> Option<Self> {
-                match s {
-                    #( #quoted_from_str_lower ),
-                    *,
-                    _ => None,
-                }
+            fn from_bytes<En: packing::Endian>(bytes: [u8; 2]) -> Result<Self, Self::Error> {
+                let [asc, ascq] = bytes;
+                Self::from(asc, ascq).ok_or(packing::Error::InvalidEnumDiscriminant)
             }
         }
+
     };
 //panic!("{:?}", result.to_string());
     Ok(result)

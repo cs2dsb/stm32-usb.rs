@@ -1,8 +1,7 @@
-/*
 use codegen::asc_list_to_enum;
 
 asc_list_to_enum!{
-    pub AdditionalSenseCode = "src/scsi/commands/asc-num.txt";
+    pub AdditionalSenseCode = "src/scsi/enums/asc-num.txt";
 }           
 
 impl Default for AdditionalSenseCode {
@@ -10,4 +9,3 @@ impl Default for AdditionalSenseCode {
         AdditionalSenseCode::NoAdditionalSenseInformation
     }
 }
-*/
