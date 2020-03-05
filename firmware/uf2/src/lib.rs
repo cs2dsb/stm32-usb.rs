@@ -5,6 +5,8 @@ use packing::{
     Error as PackingError,
 };
 
+use core::fmt;
+
 //use bitmask::bitmask;
 
 pub const DATA_LENGTH: usize = 476;
@@ -102,6 +104,13 @@ pub struct Block {
 
     #[pkd(7, 0, 508, 511)]
     magic_end: MagicEnd,
+}
+
+impl fmt::Display for Block {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Uf2: {{ target_address: 0x{:08X?}, payload_size: {}, block {} / {} blocks }}",
+            self.target_address, self.payload_size, self.block_number, self.number_of_blocks)
+    }
 }
 
 impl Default for Block {

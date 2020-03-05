@@ -20,6 +20,8 @@ use crate::logging::*;
 const UF2_FLASH_START: u32 = 0x08010000;
 
 const BLOCK_SIZE: usize = 512;
+const UF2_BLOCK_SIZE: usize = 256;
+const UF2_BLOCKS_PER_FAT_BLOCK: u32 = (BLOCK_SIZE / UF2_BLOCK_SIZE) as u32;
 const NUM_FAT_BLOCKS: u32 = 8000;
 const RESERVED_SECTORS: u32 = 1;
 const ROOT_DIR_SECTORS: u32 = 4;
@@ -429,7 +431,7 @@ impl<F: Flash> GhostFat<F> {
                         FatFileContent::Static(content) => content.len() as u32,
                         FatFileContent::Uf2 => {
                             let address_range = self.flash.address_range();
-                            address_range.end() - address_range.start()
+                            (address_range.end() - address_range.start()) * UF2_BLOCKS_PER_FAT_BLOCK
                         },
                     };
                     let start = (i+1) * len;
@@ -448,13 +450,23 @@ impl<F: Flash> GhostFat<F> {
                 //UF2
                 info!("UF2: {}", section_index);
 
-                let uf2_block = (section_index - 2) as u32;
-                let address = UF2_FLASH_START + uf2_block * (BLOCK_SIZE as u32);
-
+                let uf2_block_num = (section_index - 2) as u32;
+                let address = UF2_FLASH_START + uf2_block_num * (UF2_BLOCK_SIZE as u32);
                 let address_range = self.flash.address_range();
-                // TODO: Read partial block?
-                if address_range.contains(&address) && address_range.contains(&(address + BLOCK_SIZE as u32)) {
-                    self.flash.read_bytes(address, block).unwrap();
+                if address_range.contains(&address) && address_range.contains(&(address + UF2_BLOCK_SIZE as u32)) {
+                    let mut uf2_block = Uf2Block::default();
+
+                    // Copy the 256 bytes into the data array
+                    self.flash.read_bytes(address, &mut uf2_block.data[..UF2_BLOCK_SIZE]).unwrap();
+
+                    // Update the header data
+                    uf2_block.payload_size = UF2_BLOCK_SIZE as u32;
+                    uf2_block.target_address = address;
+                    uf2_block.block_number = uf2_block_num;
+                    uf2_block.number_of_blocks = 
+                        (address_range.end() - address_range.start()) / UF2_BLOCK_SIZE as u32;
+
+                    Packed::pack(&uf2_block, block).unwrap();
                 }                
             }
         }
@@ -486,7 +498,9 @@ impl<F: Flash> GhostFat<F> {
             return;
         }
 
-        info!("   GhostFAT writing {} bytes of UF2 block at 0x{:X?}", uf2.payload_size, lba);          
+
+        info!("   GhostFAT writing {} bytes of UF2 block at 0x{:X?}", uf2.payload_size, uf2.target_address);          
+        self.flash.write_bytes(uf2.target_address, &uf2.data[..uf2.payload_size as usize]).unwrap();
     }
 }
 

@@ -264,10 +264,13 @@ impl Flash for FlashWrapper {
         if page_address != self.page_address(page_address) {
             Err(FlashError::InvalidAddress)?;
         }
-        
+        let range = self.address_range();
         let buffer = self.page_buffer();
         for (i, half_word) in buffer.chunks_exact_mut(2).enumerate() {
             let hw_addr = page_address + i as u32 * 2;
+            if !range.contains(&hw_addr) {
+                Err(FlashError::InvalidAddress)?;
+            }
             let value = unsafe { read_volatile(hw_addr as *const [u8; 2]) };
             half_word.copy_from_slice(&value);
         }
@@ -287,11 +290,17 @@ impl Flash for FlashWrapper {
         // Make sure the flash is unlocked
         self.unlock_flash()?;
 
+        let range = self.address_range();
         let buffer = self.page_buffer();
 
         let mut half_word = [0; 2];
         for (i, c) in buffer.chunks_exact(2).enumerate() {
             let hw_addr = page_address + i as u32 * 2;
+            
+            if !range.contains(&hw_addr) {
+                Err(FlashError::InvalidAddress)?;
+            }
+
             half_word.copy_from_slice(c);
 
             //let value = unsafe { mem::transmute(half_word) };

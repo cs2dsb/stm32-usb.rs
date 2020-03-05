@@ -9,12 +9,14 @@ use clap::arg_enum;
 use env_logger;
 use log::*;
 use uf2_util::{ convert_elf, convert_bin, Error };
+use uf2::Block;
 
 arg_enum! {
     #[derive(Debug, PartialEq)]
     enum InputType {
         Bin,
         Elf,
+        Uf2,
     }
 }
 
@@ -35,14 +37,17 @@ struct Opt {
     #[structopt(parse(from_os_str))]
     output: Option<PathBuf>,
 
+    #[structopt(short, long)]
+    print: bool,
+
     #[structopt(short, long, default_value = "bin")]
     input_type: InputType,
 
     #[structopt(short, long, parse(try_from_str = parse_hex_32))]
-    base_address: Option<u32>,
+    address: Option<u32>,
 
     #[structopt(short, long, default_value = "256")]
-    page_size: u16,
+    block_size: u16,
 }
 
 fn main() -> Result<(), Error> {
@@ -57,10 +62,10 @@ fn main() -> Result<(), Error> {
 
     let opt = Opt::from_args();
 
-    let page_size = opt.page_size;
+    let block_size = opt.block_size;
 
-    if opt.input_type == InputType::Bin && opt.base_address.is_none() {
-        panic!("base_address must be provided if input_type is bin");
+    if opt.input_type == InputType::Bin && opt.address.is_none() {
+        panic!("address must be provided if input_type is bin");
     }
 
     let out_path = opt.output.unwrap_or(opt.input.with_extension("uf2"));
@@ -68,16 +73,24 @@ fn main() -> Result<(), Error> {
 
     info!("Type: {:?}", opt.input_type);
     info!("Output: {:?}", out_path);
-    debug!("Base address: {:?}", opt.base_address);
+    debug!("Base address: {:?}", opt.address);
 
-    let mut out = File::create(out_path)?;
 
     let bytes = match opt.input_type {
-        InputType::Elf => convert_elf(&data, page_size)?,
-        InputType::Bin => convert_bin(&data, page_size, opt.base_address.unwrap())?,
+        InputType::Elf => convert_elf(&data, block_size)?,
+        InputType::Bin => convert_bin(&data, block_size, opt.address.unwrap())?,
+        InputType::Uf2 => data,
     };
 
-    out.write(&bytes)?;
+    if opt.print {
+        for c in bytes.chunks_exact(512) {
+            let block = Block::parse(c)?;
+            println!("{}", block);
+        }
+    } else {
+        let mut out = File::create(out_path)?;
+        out.write(&bytes)?;
+    }
 
     Ok(())
 }
