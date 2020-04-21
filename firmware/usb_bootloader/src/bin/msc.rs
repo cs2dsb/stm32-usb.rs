@@ -54,83 +54,12 @@ use usbd_scsi::{
     BlockDeviceError,
 };
 use itm_logger::*;
+use usb_bootloader::hardware_extra::*;
 
 // VID and PID are from dapboot bluepill bootloader
 const USB_VID: u16 = 0x1209; 
 const USB_PID: u16 = 0xDB42;
-const USB_CLASS_MISCELLANEOUS: u8 =  0xEF;
-
-macro_rules! define_ptr_type {
-    ($name: ident, $ptr: expr) => (
-        impl $name {
-            fn ptr() -> *const Self {
-                $ptr as *const _
-            }
-
-            /// Returns a wrapped reference to the value in flash memory
-            pub fn get() -> &'static Self {
-                unsafe { &*Self::ptr() }
-            }
-        }
-    )
-}
-
-#[derive(Hash, Debug)]
-#[repr(C)]
-pub struct Uid {
-    a: u32,
-    b: u32,
-    c: u32,
-}
-define_ptr_type!(Uid, 0x1FFF_F7E8);
-
-fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {
-    unsafe {
-    core::slice::from_raw_parts(
-            (p as *const T) as *const u8,
-            core::mem::size_of::<T>(),
-        )
-    }
-}
-
-impl Uid {
-    pub fn update_serial(&self, serial: &mut [u8; SERIAL_LEN]) {
-        const CHARS: &str = "0123456789ABCDEF";
-        let chars = CHARS.as_bytes();
-        let bytes = any_as_u8_slice(self);
-        
-        for (i, b) in bytes.iter().enumerate() {
-            let c1 = chars[((b >> 4) & 0xF_u8) as usize];
-            let c2 = chars[((b >> 0) & 0xF_u8) as usize];
-
-            let i = i * 2;
-            if i < SERIAL_LEN {
-                serial[i] = c1;
-            }
-            if i + 1 < SERIAL_LEN {
-                serial[i+1] = c2;
-            }
-        }
-    }
-}
-
-/// Size of integrated flash
-#[derive(Debug)]
-#[repr(C)]
-pub struct FlashSize(u16);
-define_ptr_type!(FlashSize, 0x1FFF_F7E0);
-
-impl FlashSize {
-    /// Read flash size in kibi bytes
-    pub fn kibi_bytes(&self) -> u16 {
-        self.0
-    }
-
-    /// Read flash size in bytes
-    pub fn bytes(&self) -> usize {
-        usize::from(self.kibi_bytes()) * 1024
-    }
-}
+//const USB_CLASS_MISCELLANEOUS: u8 =  0xEF;
 
 pub struct FlashWrapper {
     page_size: u32,
@@ -388,11 +317,6 @@ impl Flash for FlashWrapper {
     }
 }
 
-const ITM_BAUD_RATE: u32 = 8_000_000;
-
-const SERIAL_LEN: usize = 24;
-static mut SERIAL_BYTES: [u8; SERIAL_LEN] = [0; SERIAL_LEN];
-
 #[cfg(feature = "itm")] 
 use cortex_m::{iprintln, peripheral::ITM};
 
@@ -400,13 +324,7 @@ use cortex_m::{iprintln, peripheral::ITM};
 const APP: () = {
     struct Resources {
         usb_dev: UsbDevice<'static, UsbBusType>,
-        serial: SerialPort<'static, UsbBusType>,
-        scsi: Scsi<'static, UsbBusType, GhostFat<FlashWrapper>>,
-        #[init([0; 256])]
-        buf: [u8; 256],
-        #[init(0)]
-        buf_i: usize,
-    }
+        scsi: Scsi<'static, UsbBusType, GhostFat<FlashWrapper>>,    }
 
     #[init]
     fn init(cx: init::Context) -> init::LateResources {
@@ -419,7 +337,7 @@ const APP: () = {
         // 350 cycles for a write and 150k cycles for a page erase.
         // However, since we're just busy looping while writing it doesn't really matter. Might be 
         // worth disabling them if there was any useful work to be done in this time but for now,
-        // leave them enabled.
+        // leave them enabled. 
         //cx.core.SCB.disable_icache();
         //cx.core.SCB.disable_dcache(&mut cx.core.CPUID);
 
@@ -429,7 +347,7 @@ const APP: () = {
             logger_init();
         }
 
-        info!("Hello");
+        info!("ITM reset ok.");
 
         let mut flash = cx.device.FLASH.constrain();
         let mut rcc = cx.device.RCC.constrain();
@@ -449,7 +367,7 @@ const APP: () = {
 
         assert!(clocks.usbclk_valid());
 
-        let flash_kib = FlashSize::get().kibi_bytes();
+        let flash_kib = get_flash_kibi();
         info!("Flash: {} KiB", flash_kib);
 
         // This may not be 100% accurate. Cube hal has some random IFDEFs that don't even appear
@@ -467,153 +385,8 @@ const APP: () = {
             min_address: 0x08010000,
             max_address: 0x08000000 + flash_kib as u32 * 1024,
         };
+        info!("Flash MAX: 0x{:X?}", flash_wrapper.max_address);
 
-        /*
-        unsafe {
-            const TEST_ADDR: u32 = 0x08010000;
-
-            let mut bytes = [0; 4096];
-            for (i, b) in bytes.iter_mut().enumerate() {
-                *b = (i % 255) as u8;
-            }
-
-            flash_wrapper.write_bytes(TEST_ADDR, &bytes).unwrap();
-
-            panic!("Whoops");
-            //flash_wrapper.flush_page().unwrap();
-
-            /*
-            for c in bytes.chunks(16) {
-                trace!("0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}", 
-                    c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7],
-                    c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15],
-                );
-            }
-            loop {};
-            */
-
-
-            /*
-            info!("Page == Address");
-            flash_wrapper.write_bytes(TEST_ADDR, &bytes).unwrap();
-            for c in flash_wrapper.page_buffer().chunks(16).take(4) {
-                trace!("0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}, 0x{:02X?}", 
-                    c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7],
-                    c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15],
-                );
-            }
-
-
-            flash_wrapper.read_page(TEST_ADDR).unwrap();
-            for c in flash_wrapper.page_buffer().chunks(16) {
-                trace!("0x{:X?}, 0x{:X?}, 0x{:X?}, 0x{:X?}, 0x{:X?}, 0x{:X?}, 0x{:X?}, 0x{:X?}, 0x{:X?}, 0x{:X?}, 0x{:X?}, 0x{:X?}, 0x{:X?}, 0x{:X?}, 0x{:X?}, 0x{:X?}", 
-                    c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7],
-                    c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15],
-                );
-            }
-
-            flash_wrapper.page_buffer()[18] = 0x00;
-            flash_wrapper.read_page(TEST_ADDR).unwrap();
-            flash_wrapper.write_page().unwrap();
-
-            flash_wrapper.write_bytes(TEST_ADDR, &[
-                0x12,
-                0x34,
-                0x56,
-                0x78,
-                0x9A,
-                //0xBC,
-                //0xDE,
-                //0xF0,
-            ]).unwrap();
-            flash_wrapper.erase_page(TEST_ADDR).unwrap();
-
-            */
-            //flash_wrapper.unlock_flash().unwrap();
-            //flash_wrapper.erase_page(TEST_ADDR).unwrap();
-
-            //let data = "hellostm32".as_bytes();
-            //flash_wrapper.write_pages(TEST_ADDR, data).unwrap();
-            //flash_wrapper.erase_range(TEST_ADDR, page_size * 10).unwrap();
-
-            info!("Done");
-            loop {};
-
-            const FLASH_TEST: *mut u32 = TEST_ADDR as *mut u32;
-            let value = core::ptr::read_volatile(FLASH_TEST);
-            info!("Flash value before: 0x{:X?}", value);
-
-            let flash = &(*FLASH::ptr());
-            let locked = flash.cr.read().lock().bit_is_set();
-            info!("Flash lock: {}", locked);
-
-            const KEY1: u32 = 0x45670123;
-            const KEY2: u32 = 0xCDEF89AB;
-
-            // Unlock flash
-            flash.keyr.write(|w| w.bits(KEY1));
-            flash.keyr.write(|w| w.bits(KEY2));
-
-            // Should be instant but just in case
-            while flash.cr.read().lock().bit_is_set() {
-                error!("Flash still locked");
-            }
-            info!("Flash unlocked");
-
-            // Waits until flash isn't busy 
-            let busy_wait = || while flash.sr.read().bsy().bit_is_set() {
-                info!("Flash busy");
-            };
-
-            busy_wait();
-
-            if value != 0xFFFFFFFF {
-                let number_of_pages = 1;
-
-                for i in 0..number_of_pages {
-                    //TODO: need to make sure start address is on a page boundary
-                    let page_addr = TEST_ADDR + i * page_size;
-
-                    info!("Erasing 0x{:X?}", page_addr);
-
-                    // Indicate we want to do a page erase
-                    flash.cr.modify(|_, w| w.per().set_bit());
-
-                    // Set the address we want to erase
-                    flash.ar.write(|w| w.far().bits(page_addr));
-
-                    // Kick off the operation
-                    flash.cr.modify(|_, w| w.strt().set_bit());
-
-                    busy_wait();
-                }
-                // Clear page erase flag
-                flash.cr.modify(|_, w| w.per().clear_bit());
-            }
-
-            let data: [u16; 2] = [0xABCD, 0x5678];
-            // Indicate we want to write to flash
-            flash.cr.modify(|_, w| w.pg().set_bit());
-
-            for (i, hw) in data.iter().enumerate() {
-                let address = TEST_ADDR + i as u32 * 2;
-                info!("Writing 0x{:X?} to 0x{:X?}", hw, address);
-
-                let addr_ptr: *mut u16 = address as *mut u16;
-                core::ptr::write_volatile(addr_ptr, *hw);
-
-                // Wait for bsy to be cleared
-                busy_wait();
-            }
-            // Clear write flag
-            flash.cr.modify(|_, w| w.pg().clear_bit());
-
-            let value = core::ptr::read_volatile(FLASH_TEST);
-            info!("Flash value after: 0x{:X?}", value);
-
-            loop {}
-        }
-        */
 
         let mut gpioa = cx.device.GPIOA.split(&mut rcc.apb2);
 
@@ -637,7 +410,6 @@ const APP: () = {
         *USB_BUS = Some(UsbBus::new(usb));
 
         let ghost_fat = GhostFat::new(flash_wrapper);
-        let serial = SerialPort::new(USB_BUS.as_ref().unwrap());
         let scsi = Scsi::new(
             USB_BUS.as_ref().unwrap(), 
             64,
@@ -647,12 +419,7 @@ const APP: () = {
             "FK01",
         );
         
-        // Fetch the serial info from the device electronic signature registers 
-        // and convert it to a utf string
-        let serial_number = unsafe {
-            Uid::get().update_serial(&mut SERIAL_BYTES);
-            from_utf8_unchecked(&SERIAL_BYTES)
-        };
+        let serial_number = get_serial_number();
         info!("Serial number: {}", serial_number);
 
         let usb_dev = UsbDeviceBuilder::new(USB_BUS.as_ref().unwrap(), UsbVidPid(USB_VID, USB_PID))
@@ -660,31 +427,28 @@ const APP: () = {
             .product("Serial port")
             .serial_number(serial_number)
             .self_powered(true)
-            .device_class(0) //USB_CLASS_MSC)
+            .device_class(USB_CLASS_MSC)
             .build();
 
-        init::LateResources { usb_dev, scsi, serial }
+        init::LateResources { usb_dev, scsi }
     }
 
-    #[task(binds = USB_HP_CAN_TX, resources = [usb_dev, scsi, buf, buf_i, serial])]
+    #[task(binds = USB_HP_CAN_TX, resources = [usb_dev, scsi])]
     fn usb_tx(mut cx: usb_tx::Context) {
-        usb_poll(&mut cx.resources.usb_dev, &mut cx.resources.serial, &mut cx.resources.scsi, cx.resources.buf, &mut cx.resources.buf_i);
+        usb_poll(&mut cx.resources.usb_dev, &mut cx.resources.scsi);
     }
 
-    #[task(binds = USB_LP_CAN_RX0, resources = [usb_dev, scsi, buf, buf_i, serial])]
+    #[task(binds = USB_LP_CAN_RX0, resources = [usb_dev, scsi])]
     fn usb_rx0(mut cx: usb_rx0::Context) {
-        usb_poll(&mut cx.resources.usb_dev, &mut cx.resources.serial, &mut cx.resources.scsi, cx.resources.buf, &mut cx.resources.buf_i);
+        usb_poll(&mut cx.resources.usb_dev, &mut cx.resources.scsi);
     }
 };
 
 fn usb_poll<B: bus::UsbBus>(
     usb_dev: &mut UsbDevice<'static, B>,
-    serial: &mut SerialPort<'static, B>,
     scsi: &mut Scsi<'static, B, GhostFat<FlashWrapper>>,
-    _buf: &mut [u8],
-    _buf_i: &mut usize,
 ) {
-    if !usb_dev.poll(&mut [serial, scsi]) {
+    if !usb_dev.poll(&mut [scsi]) {
         return;
     }
 }
