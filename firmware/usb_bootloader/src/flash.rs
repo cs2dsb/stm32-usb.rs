@@ -1,5 +1,5 @@
 use core::ops::RangeInclusive;
-use crate::BlockDeviceError;
+use usbd_scsi::BlockDeviceError;
 
 pub trait Flash {
     /// Flash page size in bytes

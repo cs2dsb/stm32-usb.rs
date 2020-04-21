@@ -48,13 +48,15 @@ use usbd_serial::{CdcAcmClass, SerialPort, USB_CLASS_CDC};
 use usbd_mass_storage::USB_CLASS_MSC;
 use usbd_scsi::{
     Scsi,
-    GhostFat,
     BlockDevice,
-    Flash,
     BlockDeviceError,
 };
 use itm_logger::*;
-use usb_bootloader::hardware_extra::*;
+use usb_bootloader::{
+    hardware_extra::*,
+    ghost_fat::GhostFat,
+    flash::Flash,
+};
 
 // VID and PID are from dapboot bluepill bootloader
 const USB_VID: u16 = 0x1209; 

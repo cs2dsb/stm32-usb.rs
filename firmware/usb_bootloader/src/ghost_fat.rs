@@ -3,16 +3,15 @@ use packing::{
     PackedSize,
 };
 
-use crate::{
+use usbd_scsi::{
     BlockDevice,
     BlockDeviceError,
-    Flash,
 };
 
 use uf2_block::Block as Uf2Block;
+use itm_logger::*;
 
-#[allow(unused_imports)]
-use crate::logging::*;
+use crate::flash::Flash;
 
 // 64kb left for bootloader since logging is huge
 // TODO: Needs to be configurable, can this be passed in from a linker section maybe?
