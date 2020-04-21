@@ -5,8 +5,8 @@ use goblin::{
     },
     error::Error as GoblinError,
 };
-use uf2::DATA_LENGTH;
-use uf2::{ Block, Error as Uf2Error };
+use uf2_block::DATA_LENGTH;
+use uf2_block::{ Block, Error as Uf2Error };
 use log::trace;
 use std::io::Error as IoError;
 

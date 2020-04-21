@@ -9,7 +9,7 @@ use clap::arg_enum;
 use env_logger;
 use log::*;
 use uf2_util::{ convert_elf, convert_bin, Error };
-use uf2::Block;
+use uf2_block::Block;
 
 arg_enum! {
     #[derive(Debug, PartialEq)]

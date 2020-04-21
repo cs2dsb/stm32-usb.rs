@@ -9,7 +9,7 @@ use crate::{
     Flash,
 };
 
-use uf2::Block as Uf2Block;
+use uf2_block::Block as Uf2Block;
 
 #[allow(unused_imports)]
 use crate::logging::*;
