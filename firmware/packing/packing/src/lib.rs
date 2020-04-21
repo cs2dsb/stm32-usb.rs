@@ -8,7 +8,7 @@ pub use typenum::{
     IsLess, IsLessOrEqual, IsGreaterOrEqual, Cmp,
 };
 
-/// Derive for [Packed](trait.Packed.html)
+// Re-export the proc macro
 pub use packing_codegen::Packed;
 
 mod bit;

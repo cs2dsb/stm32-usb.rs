@@ -52,6 +52,57 @@ const PKD_ATTR: &str = "pkd";
 
 
 /// Derive for [Packed](../packing/trait.Packed.html)
+///
+/// # Attributes
+///
+/// ## Struct level
+///
+/// Optional flags for `packed` attribute when used at the struct level:
+///
+/// | Name          | Description | 
+/// |---------------|-------------|
+/// | little_endian | (default) sets the struct default endianness to little endian |
+/// | big_endian    | sets the struct default endianness to big endian |
+/// | lsb0          | (default) sets the struct bit ordering such that the least significant bit is bit 0 and the most significant bit is bit 7 |
+/// | msb0          | sets the struct bit ordering such that the most significant bit is bit 0 and the least significant bit is 7 |
+///
+/// ## Field level
+///
+/// Optional parameters for `packed` attribute when used at the field level:
+///
+/// | Name          | Description | Default |
+/// |---------------|-------------|---------|
+/// | start_byte    | Zero based offset from the start of the struct where this field starts | Inferred from the end of the previous field |
+/// | end_byte      | Zero based offset from the start of the struct where this field ends (inclusive) | Inferred from start_byte + field width |
+/// | start_bit     | The bit where this field starts within the start byte. lsb0/msb0 flips the range of this field (7 to 0 vs 0 to 7) | 7 for lsb0, 0 for msb0 |
+/// | end_bit       | The bit where this field ends within the end byte (inclusive). lsb0/msb0 flips the range of this field (7 to 0 vs 0 to 7) | 0 for lsb0, 7 for msb0 |
+/// | width         | (partially tested) The width of the field in bits. This is checked against start/end byte/bit if they are specified | Inferred from start/end byte/bit and/or the native width of the field type |
+/// | space         | (partially tested) The space before the field in bits. Allows shifting a field along by a number of bits | 0 |
+///
+/// Mandatory values for `pkd` attribute:
+/// 
+/// | Index | Description |
+/// |-------|-------------|
+/// | 0     | start_byte  |
+/// | 1     | end_byte    |
+/// | 2     | start_bit   |
+/// | 3     | end_bit     |
+///
+/// ## Note about width/space
+///
+/// The main use case of this macro is explicitly specifying `start_byte`, `end_byte`, `start_bit` and `end_bit` on
+/// every field. For SCSI and USB specifications, these values can be read off the tables provided more easily
+/// than trying to work out how many bits the field is total, adding offsets, etc, etc. I found transcribing
+/// these values directly from the spec much less error prone than attempting to do maths around offsets and
+/// trying to remember the exact algorithm the packing macro(s - I tried several) used.
+///
+/// However, this derive also supports inferring field alignments from the width of the field type, where the
+/// last field ended, etc. This is provided so projects can use it for the complex explicit case mentioned above
+/// but also use it for the more trivial alignments you'd expect from repr(C) or repr(Packed). `width` and 
+/// `space` were added to allow the case where most of the struct is as you'd expect but a handful of fields
+/// are slightly different. This was working at the time of implementation but has no tests around it currently
+/// so may get broken. //TODO: add tests for all supported cases.
+
 #[proc_macro_derive(Packed, attributes(packed, pkd))]
 pub fn packed_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -179,7 +230,7 @@ enum BitOrder {
 }
 impl Default for BitOrder {
     fn default() -> BitOrder {
-        BitOrder::Msb0
+        BitOrder::Lsb0
     }
 }
 impl Name for BitOrder {
