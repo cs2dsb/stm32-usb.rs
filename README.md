@@ -1,6 +1,10 @@
 # stm32-usb.rs
 
-A dev board designed to facilitate developing a USB bootloader for STM32 in rust. Something like Arduino Optiboot or [uf2](https://github.com/microsoft/uf2)
+Experimental [UF2](https://github.com/microsoft/uf2) bootloader written in rust.
+
+Ignore the `hardware` folder - the PCB may work but I didn't bother getting it manufactured in the end as the bluepill was sufficient for my needs.
+
+Check out the [firmware/usb_bootloader](firmware/usb_bootloader) folder for more info.
 
 ## License
 
