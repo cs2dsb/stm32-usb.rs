@@ -6,7 +6,7 @@ WIP USB bootloader in rust that supports [UF2](https://github.com/microsoft/uf2)
 
 * Broadly working but experimental.
 * usb-bootloader can be flashed to a bluepill dev board with no modifications
-    * see `release` for an example build command - be aware the features enabled in there require the debugger be attached for it to work correctly. Just use the default features for it to run correctly without the debugger attached
+    * [deploy_standalone](deploy_standalone) should flash a working bootloader to a bluepill connected to an ST-LINK. If it doesn't work try [run_openocd](run_openocd) to make sure OpenOCD is working correctly. It's sometimes necessary to hold down the reset button while launching OpenOCD if the core has got into a weird state. If you want to debug the bootloader, run [run_openocd](run_openocd) in one terminal then [release](release) in another to launch gdb with a build that has ITM tracing turned on.
 * `../blink/deploy_to "/media/.../BLUEPILL"` will build a blink example, convert it to UF2 and copy it to the USB drive
 * usb-bootloader could be relatively easily changed to work with any embedded-hal implementation that has implemented [usb-device](https://github.com/mvirkkunen/usb-device)
 * The flash reading/writing code in usb-bootloader could be moved into the embedded-hal implementations - it would be nice to have a simple trait that can read/write blocks of bytes from flash without having to worry about page size and other device specific details.
