@@ -1,6 +1,6 @@
 [package]
 name = "usbd_scsi"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["cs2dsb <cs2dsb@gmail.com>"]
 edition = "2018"
 description = "usb-device implementation that provides a USB scsi transparent command set subclass"

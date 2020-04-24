@@ -26,14 +26,20 @@ use rtfm::app;
 use stm32f1xx_hal::{
     prelude::*,
     time::Hertz,
-};
-use stm32f1xx_hal::{
     usb::{
         Peripheral, 
         UsbBus, 
         UsbBusType,
     },
-    pac::FLASH,
+    timer::{
+        CountDownTimer,
+        Timer,
+        Event,
+    },
+    pac::{
+        FLASH,
+        TIM2,
+    },
 };
 use usb_device::{
     bus,
@@ -62,6 +68,9 @@ use usb_bootloader::{
 const USB_VID: u16 = 0x1209; 
 const USB_PID: u16 = 0xDB42;
 //const USB_CLASS_MISCELLANEOUS: u8 =  0xEF;
+
+const TICK_MS: u32 = 10;
+const TICK_HZ: Hertz = Hertz(1000 / TICK_MS);
 
 pub struct FlashWrapper {
     page_size: u32,
@@ -326,10 +335,12 @@ use cortex_m::{iprintln, peripheral::ITM};
 const APP: () = {
     struct Resources {
         usb_dev: UsbDevice<'static, UsbBusType>,
-        scsi: Scsi<'static, UsbBusType, GhostFat<FlashWrapper>>,    }
+        scsi: Scsi<'static, UsbBusType, GhostFat<FlashWrapper>>,
+        tick_timer: CountDownTimer<TIM2>,
+    }
 
     #[init]
-    fn init(cx: init::Context) -> init::LateResources {
+    fn init(mut cx: init::Context) -> init::LateResources {
         static mut USB_BUS: Option<bus::UsbBusAllocator<UsbBusType>> = None;
 
         // If caches are enabled, write operations to flash cause the core to hang because it
@@ -353,6 +364,12 @@ const APP: () = {
 
         let mut flash = cx.device.FLASH.constrain();
         let mut rcc = cx.device.RCC.constrain();
+        let bkp = rcc.bkp.constrain(
+            cx.device.BKP, 
+            &mut rcc.apb1,
+            &mut cx.device.PWR,
+        );
+        let tim2 = cx.device.TIM2;
 
         let clocks = rcc
             .cfgr
@@ -411,7 +428,15 @@ const APP: () = {
 
         *USB_BUS = Some(UsbBus::new(usb));
 
-        let ghost_fat = GhostFat::new(flash_wrapper);
+        let mut tick_timer = Timer::tim2(tim2, &clocks, &mut rcc.apb1)
+            .start_count_down(TICK_HZ);
+        tick_timer.listen(Event::Update);
+
+        let ghost_fat = GhostFat::new(
+            flash_wrapper,
+            bkp,
+        );
+
         let scsi = Scsi::new(
             USB_BUS.as_ref().unwrap(), 
             64,
@@ -432,7 +457,11 @@ const APP: () = {
             .device_class(USB_CLASS_MSC)
             .build();
 
-        init::LateResources { usb_dev, scsi }
+        init::LateResources { 
+            usb_dev, 
+            scsi, 
+            tick_timer,
+        }
     }
 
     #[task(binds = USB_HP_CAN_TX, resources = [usb_dev, scsi])]
@@ -443,6 +472,19 @@ const APP: () = {
     #[task(binds = USB_LP_CAN_RX0, resources = [usb_dev, scsi])]
     fn usb_rx0(mut cx: usb_rx0::Context) {
         usb_poll(&mut cx.resources.usb_dev, &mut cx.resources.scsi);
+    }
+
+    #[task(binds = TIM2, resources = [scsi, tick_timer])]
+    fn tick(cx: tick::Context) {
+        cx.resources
+          .tick_timer
+          .clear_update_interrupt_flag();
+
+        cx.resources
+          .scsi
+          .block_device_mut()
+          .tick(TICK_MS);
+
     }
 };
 

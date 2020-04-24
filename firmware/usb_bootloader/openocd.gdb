@@ -34,6 +34,8 @@ set print asm-demangle on
 # # enable ITM port 0
 # monitor itm port 0 on
 
+add-symbol-file ../blink/target/thumbv7m-none-eabi/release/blink 0x8010000
+
 load
 
 # start the process but immediately halt the processor

@@ -1,3 +1,5 @@
+use core::ptr::read_volatile;
+
 use packing::{
     Packed,
     PackedSize,
@@ -10,6 +12,15 @@ use usbd_scsi::{
 
 use uf2_block::Block as Uf2Block;
 use itm_logger::*;
+use stm32f1xx_hal::{
+    backup_domain::BackupDomain,
+    pac::{
+        SCB,
+        NVIC,
+    },
+};
+
+use cortex_m::asm;
 
 use crate::flash::Flash;
 
@@ -30,6 +41,27 @@ const START_ROOTDIR: u32 = START_FAT1 + SECTORS_PER_FAT;
 const START_CLUSTERS: u32 = START_ROOTDIR + ROOT_DIR_SECTORS;
 const UF2_SIZE: u32 = 0x10000 * 2;
 const UF2_SECTORS: u32 = UF2_SIZE / (BLOCK_SIZE as u32);
+
+const RESTART_DELAY_MS: u32 = 200;
+
+// Magic tokens to change the behaviour on boot up
+// I don't know why they are u32 instead of just u16 that would fit in a single backup register
+// just copied from dapboot.c for now
+const CMD_BOOT: u32 = 0x544F4F42;
+const CMD_APP: u32 = 0x3F82722A;
+const BACKUP_REGISTER: usize = 0;
+
+const ASCII_SPACE: u8 = 0x20;
+
+fn read_u32_backup_register(backup_domain: &BackupDomain, register: usize) -> u32 {
+      (backup_domain.read_data_register_low(register * 2 + 1) as u32) << 16
+    | (backup_domain.read_data_register_low(register * 2) as u32)
+}
+
+fn write_u32_backup_register(backup_domain: &BackupDomain, register: usize, value: u32) {
+    backup_domain.write_data_register_low(register * 2 + 1, (value >> 16) as u16);
+    backup_domain.write_data_register_low(register * 2, (value & 0x0000FFFF) as u16);
+}
 
 #[derive(Clone, Copy, Default, Packed)]
 #[packed(little_endian, lsb0)]
@@ -85,7 +117,6 @@ pub struct FatFile {
     pub content: FatFileContent,
 }
 
-const ASCII_SPACE: u8 = 0x20;
 
 impl FatFile {
     fn with_content<N: AsRef<[u8]>, T: AsRef<[u8]>>(name_: N, content_: T) -> Self {
@@ -234,6 +265,12 @@ pub struct GhostFat<F: Flash> {
     fat_boot_block: FatBootBlock,
     fat_files: [FatFile; 3],
     flash: F,
+    /// Count of successfully written blocks, used to determine if a whole uf2 program has been
+    /// written and therefore a restart performed
+    uf2_blocks_written: u32,
+    tick_ms: u32,
+    restart_ms: u32,
+    backup_domain: BackupDomain,
 }
 
 impl<F: Flash> BlockDevice for GhostFat<F> {
@@ -369,9 +406,23 @@ impl<F: Flash> BlockDevice for GhostFat<F> {
             return PROTOCOL_ERROR;
         }
 
+        if !self.flash.address_range().contains(&uf2.target_address) {
+            warn!("   GhostFAT UF2 block invalid address 0x{:X?}", uf2.target_address);
+            Err(BlockDeviceError::InvalidAddress)?;
+        }
 
         info!("   GhostFAT writing {} bytes of UF2 block at 0x{:X?}", uf2.payload_size, uf2.target_address);          
-        self.flash.write_bytes(uf2.target_address, &uf2.data[..uf2.payload_size as usize])
+        self.flash.write_bytes(uf2.target_address, &uf2.data[..uf2.payload_size as usize])?;
+
+        self.uf2_blocks_written += 1;
+
+        info!("uf2_blocks_written: {}, number_of_blocks: {}", self.uf2_blocks_written, uf2.number_of_blocks);
+
+        if self.uf2_blocks_written >= uf2.number_of_blocks {
+            self.trigger_delayed_restart();
+        }
+
+        Ok(())
     }
     fn max_lba(&self) -> u32 {
         NUM_FAT_BLOCKS - 1
@@ -379,12 +430,135 @@ impl<F: Flash> BlockDevice for GhostFat<F> {
 }
 
 
+#[repr(C)]
+#[derive(Debug)]
+struct VectorTableStub {
+    stack_pointer: u32,
+    entry_point: extern fn() -> !,
+}
+
+// Dapboot uses "msr msp, $0" instruction then calls the entry point to do what this function does
+// but this thread https://stackoverflow.com/questions/48956996/how-can-i-assign-a-value-to-the-stack-pointer-of-an-arm-chip-in-rust
+// suggested something similar to this as an alternative.
+// I've added the manual loading r0 and r1 to make sure we've got the entry point before the 
+// stack pointer gets changed. My code ends up with a stack allocated pointer to VT because (I think)
+// my base address isn't a constant.
+// This code IS working but stepping through the asm in gdb is behaving weirdly - it's continuing
+// execution when stepping over the load $0 into r0. I haven't been able to determine the cause.
+unsafe fn set_stack_and_run(vt: &VectorTableStub) -> ! {
+    asm!(r#"
+            ldr r0, [$0]
+            ldr r1, [$0, #4]
+            mov sp, r0
+            mov pc, r1
+        "#
+        :            // outputs
+        : "r"(vt)    // inputs
+        : "r0", "r1" // clobbers
+        :            //options
+    );
+    loop {}
+}
+
 impl<F: Flash> GhostFat<F> {
-    pub fn new(flash: F) -> Self {
-        GhostFat {
+    pub fn new(flash: F, backup_domain: BackupDomain) -> Self {
+        let gf = GhostFat {
             fat_boot_block: fat_boot_block(),
             fat_files: fat_files(),
             flash,
+            uf2_blocks_written: 0,
+            tick_ms: 0,
+            restart_ms: 0,
+            backup_domain,
+        };
+
+        gf.bootloader_check();
+
+        gf
+    }
+
+    // Read the command out of the backup register and reset the register to 0
+    fn take_backup_command(&self) -> u32 {
+        let cmd = read_u32_backup_register(&self.backup_domain, BACKUP_REGISTER);
+        write_u32_backup_register(&self.backup_domain, BACKUP_REGISTER, 0);
+        cmd
+    }
+
+    fn bootloader_check(&self) {
+        let valid = self.valid_app_present();
+        let cmd = self.take_backup_command();
+
+        if valid && cmd != CMD_BOOT {
+            self.jump_to_application();
+        }
+    }
+
+    fn jump_to_application(&self) -> ! {
+        info!("Jumping to application!");
+        // Set the backup register so that if the user resets we end up in the bootloader
+        write_u32_backup_register(&self.backup_domain, BACKUP_REGISTER, CMD_BOOT);
+
+
+        unsafe {
+            let nvic = &(*NVIC::ptr());
+
+            // Disable all interrupts
+            for v in nvic.icer.iter() {
+                v.write(0xFFFFFFFF);
+            }
+
+            // Clear all pending
+            for v in nvic.icpr.iter() {
+                v.write(0xFFFFFFFF);
+            }
+        
+            let base_addr = self.app_base_address();
+
+            let vt = &*(base_addr as *const VectorTableStub);
+
+            let sbc = &(*SCB::ptr());
+
+            info!("VectorTableStub: {:X?}, vtor: {:X?}", vt, sbc.vtor.read());
+
+            // Relocate the vector table to the application's
+            sbc.vtor.write(base_addr & 0xFFFF);
+            // Make sure that's done before we carry on            
+            asm::isb();
+
+            // Set the stack pointer and jump to the entry point
+            set_stack_and_run(vt)
+        }
+    }
+
+    fn app_base_address(&self) -> u32 {
+        *self.flash.address_range().start()
+    }
+
+    fn valid_app_present(&self) -> bool {
+        let app_base = self.app_base_address();
+        let value = unsafe { read_volatile(app_base as *const u32) };
+
+        value & 0x2FFE0000 == 0x20000000 
+    }
+
+    fn trigger_delayed_restart(&mut self) {
+        self.tick_ms = 0;
+        self.restart_ms = RESTART_DELAY_MS;
+    }
+
+    fn restart_now(&mut self) {
+        self.bootloader_check();
+    }
+
+    pub fn tick(&mut self, ms_elapsed: u32) {
+        if self.restart_ms > 0 {
+            self.tick_ms += ms_elapsed;
+
+            if self.tick_ms >= self.restart_ms {
+                self.restart_ms = 0;
+                self.tick_ms = 0;
+                self.restart_now();
+            }
         }
     }
 }

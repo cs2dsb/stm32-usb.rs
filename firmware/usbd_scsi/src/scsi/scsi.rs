@@ -53,12 +53,15 @@ impl<B: UsbBus, BD: BlockDevice> Scsi<'_, B, BD> {
     /// Creates a new Scsi block device
     ///
     /// `block_device` provides reading and writing of blocks to the underlying filesystem
+    ///
     /// `vendor_identification` is an ASCII string that forms part of the SCSI inquiry response. 
     ///      Should come from [t10](https://www.t10.org/lists/2vid.htm). Any semi-unique non-blank
     ///      string should work fine for local development. Panics if > 8 characters are supplied.
+    ///
     /// `product_identification` is an ASCII string that forms part of the SCSI inquiry response. 
     ///      Vendor (probably you...) defined so pick whatever you want. Panics if > 16 characters
     ///      are supplied.
+    ///
     /// `product_revision_level` is an ASCII string that forms part of the SCSI inquiry response. 
     ///      Vendor (probably you...) defined so pick whatever you want. Typically a version number.
     ///      Panics if > 4 characters are supplied.
@@ -92,6 +95,11 @@ impl<B: UsbBus, BD: BlockDevice> Scsi<'_, B, BD> {
             lba: 0,
             lba_end: 0,
         }
+    }
+
+    /// Grants access to the block device for the purposes of housekeeping etc.
+    pub fn block_device_mut(&mut self) -> &mut BD {
+        &mut self.block_device
     }
 
     fn get_new_command(&mut self) -> Result<bool, Error> {

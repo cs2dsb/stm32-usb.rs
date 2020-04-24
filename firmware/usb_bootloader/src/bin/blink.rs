@@ -1,8 +1,6 @@
 #![no_std]
 #![no_main]
 
-#![feature(const_fn)]
-
 #[allow(unused_imports)]
 use cortex_m::{asm, singleton};
 
@@ -58,6 +56,7 @@ const APP: () = {
     
     #[init]
     fn init(cx: init::Context) -> init::LateResources {
+        asm::bkpt();
         let device = cx.device;
         let mut rcc = device.RCC.constrain();
         let mut flash = device.FLASH.constrain();
