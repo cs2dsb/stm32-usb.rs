@@ -2,4 +2,4 @@
 
 ./device_reset_halt
 
-cargo +nightly run --bin msc
+cargo run --bin msc

@@ -21,13 +21,17 @@ const APP: () = {
         let device = cx.device;
         let mut rcc = device.RCC.constrain();
         let mut gpioc = device.GPIOC.split(&mut rcc.apb2);
+        let mut gpioa = device.GPIOA.split(&mut rcc.apb2);
         
         let mut led_usr = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
+        let mut led_usr2 = gpioa.pa7.into_push_pull_output(&mut gpioa.crl);
         
         loop {
             let _ = led_usr.set_high();
+            let _ = led_usr2.set_high();
             for _ in 0..100000 { asm::nop() }
             let _ = led_usr.set_low();
+            let _ = led_usr2.set_low();
             for _ in 0..100000 { asm::nop() }
         }
     }

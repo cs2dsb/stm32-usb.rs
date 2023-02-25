@@ -19,7 +19,7 @@ nb                    = "0.1.2"
 typenum               = "1.11.2"
 itm_logger            = { version = "0.1.0", default-features = false }
 usbd_mass_storage     = { version = "0.1.0", path = "../usbd_mass_storage" }
-packing               = { version = "0.1.0", path = "../packing/packing" }
+packing               = { version = "0.2.0", path = "../packing/packing" }
 
 [features]
 trace-bot-headers = []

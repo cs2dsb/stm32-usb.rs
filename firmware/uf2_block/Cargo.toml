@@ -14,4 +14,4 @@ homepage = "https://github.com/cs2dsb/stm32-usb.rs/tree/master/firmware/uf2_bloc
 
 [dependencies]
 bitmask               = { version = "0.5.0", default-features = false }
-packing               = { version = "0.1.0", path = "../packing/packing" }
+packing               = { version = "0.2.0", path = "../packing/packing" }

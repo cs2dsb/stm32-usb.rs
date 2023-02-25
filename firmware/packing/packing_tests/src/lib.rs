@@ -58,12 +58,76 @@ pub struct Integers {
 
 }
 
+#[derive(Packed, PartialEq, Debug)]
+pub enum NonUnit {
+    Floats(Floats),
+    Integers(Integers),
+}
 
+#[derive(Packed, PartialEq, Debug)]
+#[packed(little_endian, lsb0)]
+pub struct TightPack {
+    //start_bit, end_bit, start_byte, end_byte
+    #[pkd(7, 4, 0, 1)]
+    pub first_12_bits: u16,
+    #[pkd(3, 0, 1, 2)]
+    pub second_12_bits: u16,
+    #[pkd(7, 4, 3, 4)]
+    pub third_12_bits: u16,
+    #[pkd(3, 0, 4, 4)]
+    pub remainder_4_bits: u8,
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use quickcheck_macros::quickcheck;
+
+    #[test]
+    fn test_tight_pack() {
+        assert_eq!(TightPack::BYTES, 5);
+
+        let tp = TightPack {
+            first_12_bits: 4095,
+            second_12_bits: 0,
+            third_12_bits: 1024,
+            remainder_4_bits: 15,
+        };
+
+        let mut bytes = [0; TightPack::BYTES];
+        tp.pack(&mut bytes).unwrap();
+
+        let tp2 = TightPack::unpack(&bytes).unwrap();
+
+        assert_eq!(tp, tp2);
+
+    }
+
+    #[quickcheck]
+    fn qc_non_unit(i8_: i8, i16_: i16, i32_: i32, i64_: i64, i128_: i128, a_float: f32, b_float: f64) {
+        let i = Integers { i8_, i16_, i32_, i64_, i128_ };
+        let f = Floats { a_float, b_float };
+
+        let nu = NonUnit::Integers(i);
+
+        let mut packed = [0; NonUnit::BYTES];
+        nu.pack(&mut packed).unwrap();
+        let nu2 = NonUnit::unpack(&packed).unwrap();
+        assert_eq!(nu, nu2);
+        let mut packed2 = [0; NonUnit::BYTES];
+        nu2.pack(&mut packed2).unwrap();
+        assert_eq!(nu, nu2);
+
+        let nu = NonUnit::Floats(f);
+
+        let mut packed = [0; NonUnit::BYTES];
+        nu.pack(&mut packed).unwrap();
+        let nu2 = NonUnit::unpack(&packed).unwrap();
+        assert_eq!(nu, nu2);
+        let mut packed2 = [0; NonUnit::BYTES];
+        nu2.pack(&mut packed2).unwrap();
+        assert_eq!(nu, nu2);
+    }
 
     #[quickcheck]
     fn qc_integers(i8_: i8, i16_: i16, i32_: i32, i64_: i64, i128_: i128) {
@@ -194,198 +258,199 @@ mod tests {
 
 
         // Single bit, should just mask and align it, BE and LE should be the same
-        if let Err(e) = test_copy_field_bits_::<BigEndian, U5, U4>(
+        test_copy_field_bits_::<BigEndian, U5, U4>(
             &[  0b11111111 ],
             &[  0b00000011 ],
             &mut [0; 1],
             &[  0b0110000 ],
             &mut [0; 1],
-        ) { panic!(e) };
-        if let Err(e) = test_copy_field_bits_::<LittleEndian, U5, U4>(
+        ).unwrap();
+
+        test_copy_field_bits_::<LittleEndian, U5, U4>(
             &[  0b11111111 ],
             &[  0b00000011 ],
             &mut [0; 1],
             &[  0b0110000 ],
             &mut [0; 1],
-        ) { panic!(e) };
+        ).unwrap();
 
         // Derivative case, aligned & correct length
-        if let Err(e) = test_copy_field_bits_::<BigEndian, U7, U0>(
+        test_copy_field_bits_::<BigEndian, U7, U0>(
             &[  0b11111111,     0b11111111 ],
             &[  0b11111111,     0b11111111 ],
             &mut [0; 2],
             &[  0b11111111,     0b11111111 ],
             &mut [0; 2],
-        ) { panic!(e) }
+        ).unwrap();
 
-        if let Err(e) = test_copy_field_bits_::<LittleEndian, U7, U0>(
+        test_copy_field_bits_::<LittleEndian, U7, U0>(
             &[  0b11111111,     0b11111111 ],
             &[  0b11111111,     0b11111111 ],
             &mut [0; 2],
             &[  0b11111111,     0b11111111 ],
             &mut [0; 2],
-        ) { panic!(e) }
+        ).unwrap();
 
 
         // Just head masking
-        if let Err(e) = test_copy_field_bits_::<BigEndian, U5, U0>(
+        test_copy_field_bits_::<BigEndian, U5, U0>(
             &[  0b11111111,     0b11111111 ],
             &[  0b00111111,     0b11111111 ],
             &mut [0; 2],
             &[  0b00111111,     0b11111111 ],
             &mut [0; 2],
-        ) { panic!(e) }
+        ).unwrap();
 
-        if let Err(e) = test_copy_field_bits_::<LittleEndian, U5, U0>(
+        test_copy_field_bits_::<LittleEndian, U5, U0>(
             &[  0b11111111,     0b11111111 ],
             &[  0b11111111,     0b00111111 ],
             &mut [0; 2],
             &[  0b00111111,     0b11111111 ],
             &mut [0; 2],
-        ) { panic!(e) }
+        ).unwrap();
 
 
         // Just shifting
-        if let Err(e) = test_copy_field_bits_::<BigEndian, U7, U2>(
+        test_copy_field_bits_::<BigEndian, U7, U2>(
             &[  0b11111111,     0b11111111 ],
             &[  0b00111111,     0b11111111 ],
             &mut [0; 2],
             &[  0b11111111,     0b11111100 ],
             &mut [0; 2],
-        ) { panic!(e) }
+        ).unwrap();
 
-        if let Err(e) = test_copy_field_bits_::<LittleEndian, U7, U2>(
+        test_copy_field_bits_::<LittleEndian, U7, U2>(
             &[  0b11111111,     0b11111111 ],
             &[  0b11111111,     0b00111111 ],
             &mut [0; 2],
             &[  0b11111111,     0b11111100 ],
             &mut [0; 2],
-        ) { panic!(e) }
+        ).unwrap();
 
 
-        if let Err(e) = test_copy_field_bits_::<BigEndian, U7, U2>(
+        test_copy_field_bits_::<BigEndian, U7, U2>(
             &[  0b10000000,     0b11111111 ],
             &[  0b00100000,     0b00111111 ],
             &mut [0; 2],
             &[  0b10000000,     0b11111100 ],
             &mut [0; 2],
-        ) { panic!(e) }
+        ).unwrap();
 
 
-        if let Err(e) = test_copy_field_bits_::<LittleEndian, U7, U2>(
+        test_copy_field_bits_::<LittleEndian, U7, U2>(
             &[  0b10000000,     0b11111111 ],
             &[  0b10000000,     0b00111111 ],
             &mut [0; 2],
             &[  0b10000000,     0b11111100 ],
             &mut [0; 2],
-        ) { panic!(e) }
+        ).unwrap();
 
 
         // Masking and shifting
-        if let Err(e) = test_copy_field_bits_::<BigEndian, U5, U2>(
+        test_copy_field_bits_::<BigEndian, U5, U2>(
             &[  0b11111111,     0b11111111 ],
             &[  0b00001111,     0b11111111 ],
             &mut [0; 2],
             &[  0b00111111,     0b11111100 ],
             &mut [0; 2],
-        ) { panic!(e) }
+        ).unwrap();
 
-        if let Err(e) = test_copy_field_bits_::<BigEndian, U5, U2>(
+        test_copy_field_bits_::<BigEndian, U5, U2>(
             &[  0b10111101,     0b11111000 ],
             &[  0b00001111,     0b01111110 ],
             &mut [0; 2],
             &[  0b00111101,     0b11111000 ],
             &mut [0; 2],
-        ) { panic!(e) }
+        ).unwrap();
 
 
         // Shrinking
-        if let Err(e) = test_copy_field_bits_::<BigEndian, U4, U5>(
+        test_copy_field_bits_::<BigEndian, U4, U5>(
             &[  0b11111111,     0b11111111 ],
             &[  0b11111111 ],
             &mut [0; 1],
             &[  0b00011111,     0b11100000 ],
             &mut [0; 2],
-        ) { panic!(e) }
+        ).unwrap();
 
 
         // 1-byte -> 4-byte
-        if let Err(e) = test_copy_field_bits_::<BigEndian, U7, U0>(
+        test_copy_field_bits_::<BigEndian, U7, U0>(
             &[  0b11111111 ],
             &[  0, 0, 0, 0b11111111 ],
             &mut [0; 4],
             &[  0b11111111 ],
             &mut [0; 1],
-        ) { panic!(e) }
+        ).unwrap();
 
 
         // Bool behaviour
-        if let Err(e) = test_copy_field_bits_::<BigEndian, U4, U4>(
+        test_copy_field_bits_::<BigEndian, U4, U4>(
             &[  0b00010000  ],
             &[  0b00000001  ],
             &mut [0; 1],
             &[  0b00010000  ],
             &mut [0; 1],
-        ) { panic!(e) }
+        ).unwrap();
 
 
         // Some random cases from quicktest that found bugs previously
-        if let Err(e) = test_copy_field_bits_::<LittleEndian, U2, U0>(
+        test_copy_field_bits_::<LittleEndian, U2, U0>(
             &[  0b00000011  ],
             &[  0b00000011  ],
             &mut [0; 1],
             &[  0b00000011  ],
             &mut [0; 1],
-        ) { panic!(e) }
+        ).unwrap();
 
-        if let Err(e) = test_copy_field_bits_::<BigEndian, U4, U3>(
+        test_copy_field_bits_::<BigEndian, U4, U3>(
             &[  0b00011000  ],
             &[  0b00000011  ],
             &mut [0; 1],
             &[  0b00011000  ],
             &mut [0; 1],
-        ) { panic!(e) }
+        ).unwrap();
 
-        if let Err(e) = test_copy_field_bits_::<LittleEndian, U7, U2>(
+        test_copy_field_bits_::<LittleEndian, U7, U2>(
             &[  0b00000100  ],
             &[  0b00000001  ],
             &mut [0; 1],
             &[  0b00000100  ],
             &mut [0; 1],
-        ) { panic!(e) }
+        ).unwrap();
 
-        if let Err(e) = test_copy_field_bits_::<BigEndian, U3, U2>(
+        test_copy_field_bits_::<BigEndian, U3, U2>(
             &[  0b00001100  ],
             &[  0b00000011  ],
             &mut [0; 1],
             &[  0b00001100  ],
             &mut [0; 1],
-        ) { panic!(e) }
+        ).unwrap();
 
-        if let Err(e) = test_copy_field_bits_::<LittleEndian, U1, U6>(
+        test_copy_field_bits_::<LittleEndian, U1, U6>(
             &[  0b00000010, 0b11000111  ],
             &[  0b00001110  ],
             &mut [0; 1],
             &[  0b00000010, 0b11000000  ],
             &mut [0; 2],
-        ) { panic!(e) }
+        ).unwrap();
 
 /*
-        if let Err(e) = test_copy_field_bits_::<BigEndian, U3, U2>(
+        test_copy_field_bits_::<BigEndian, U3, U2>(
             &[  0b00001100  ],
             &[  0b00000011  ],
             &mut [0; 1],
             &[  0b00001100  ],
             &mut [0; 1],
-        ) { panic!(e) }     */
+        ).unwrap(); */
 
-        if let Err(e) = test_copy_field_bits_::<LittleEndian, U3, U1>(
+        test_copy_field_bits_::<LittleEndian, U3, U1>(
             &[  0b00011100  ],
             &[  0b00000110  ],
             &mut [0; 1],
             &[  0b00001100  ],
             &mut [0; 1],
-        ) { panic!(e) }
+        ).unwrap();
 
     }
 
@@ -393,13 +458,13 @@ mod tests {
     #[should_panic]
     fn test_copy_field_bits_too_big() {
         // 4-byte -> 1-byte
-        if let Err(e) = test_copy_field_bits_::<BigEndian, U7, U0>(
+        test_copy_field_bits_::<BigEndian, U7, U0>(
             &[  0b11111111, 0b11111111, 0b11111111, 0b11111111 ],
             &[  0b11111111 ],
             &mut [0; 1],
             &[  0b00000000, 0b00000000, 0b00000000, 0b11111111 ],
             &mut [0; 4],
-        ) { panic!(e) }
+        ).unwrap();
     }
 }
 

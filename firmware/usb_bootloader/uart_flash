@@ -4,9 +4,9 @@ set -e
 ELF=target/thumbv7m-none-eabi/release/msc
 BIN=$ELF.bin
 
-# The cargo-binutils comman also rebuilds the rust code
+# The cargo-binutils command also rebuilds the rust code
 # Convert the ELF into a BIN
-cargo +nightly objcopy --release --bin msc -- -O binary $BIN
+cargo objcopy --release --bin msc -- -O binary $BIN
 
 # Flash it over UART
 stm32flash -w $BIN \

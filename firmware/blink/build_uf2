@@ -5,7 +5,7 @@ ELF=target/thumbv7m-none-eabi/release/blink
 UF2=./blink.uf2
 
 
-cargo build --bin blink
+cargo build --bin blink --release
 
 # Make sure uf2_util has been built
 (cd ../uf2_util/; cargo build)

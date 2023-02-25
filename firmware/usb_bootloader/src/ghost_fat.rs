@@ -1,4 +1,7 @@
-use core::ptr::read_volatile;
+use core::{
+    arch::asm,
+    ptr::read_volatile,
+};
 
 use packing::{
     Packed,
@@ -275,7 +278,7 @@ pub struct GhostFat<F: Flash> {
 
 impl<F: Flash> BlockDevice for GhostFat<F> {
     const BLOCK_BYTES: usize = BLOCK_SIZE;
-    fn read_block(&self, lba: u32, block: &mut [u8]) -> Result<(), BlockDeviceError> {
+    fn read_block(&mut self, lba: u32, block: &mut [u8]) -> Result<(), BlockDeviceError> {
         assert_eq!(block.len(), BLOCK_SIZE);
 
         info!("GhostFAT reading block: 0x{:X?}", lba);
@@ -332,7 +335,7 @@ impl<F: Flash> BlockDevice for GhostFat<F> {
                         FatFileContent::Static(content) => content.len() as u32,
                         FatFileContent::Uf2 => {
                             let address_range = self.flash.address_range();
-                            (address_range.end() - address_range.start()) * UF2_BLOCKS_PER_FAT_BLOCK
+                            (address_range.end() - address_range.start()) * UF2_BLOCKS_PER_FAT_BLOCK 
                         },
                     };
                     let start = (i+1) * len;
@@ -351,6 +354,9 @@ impl<F: Flash> BlockDevice for GhostFat<F> {
                 //UF2
                 info!("UF2: {}", section_index);
 
+                self.uf2_blocks_written += 1;
+                for b in block.iter_mut() { *b = (self.uf2_blocks_written % 255) as u8 }
+                /*
                 let uf2_block_num = (section_index - 2) as u32;
                 let address = UF2_FLASH_START + uf2_block_num * (UF2_BLOCK_SIZE as u32);
                 let address_range = self.flash.address_range();
@@ -368,7 +374,8 @@ impl<F: Flash> BlockDevice for GhostFat<F> {
                         (address_range.end() - address_range.start()) / UF2_BLOCK_SIZE as u32;
 
                     Packed::pack(&uf2_block, block).unwrap();
-                }                
+                }
+                */            
             }
         }
         Ok(())
@@ -447,15 +454,16 @@ struct VectorTableStub {
 // execution when stepping over the load $0 into r0. I haven't been able to determine the cause.
 unsafe fn set_stack_and_run(vt: &VectorTableStub) -> ! {
     asm!(r#"
-            ldr r0, [$0]
-            ldr r1, [$0, #4]
+            ldr r0, [{0}]
+            ldr r1, [{0}, #4]
             mov sp, r0
             mov pc, r1
-        "#
-        :            // outputs
-        : "r"(vt)    // inputs
-        : "r0", "r1" // clobbers
-        :            //options
+        "#,
+        // inputs
+        in(reg) vt,
+        // clobbers
+        out("r0") _, 
+        out("r1") _,
     );
     loop {}
 }

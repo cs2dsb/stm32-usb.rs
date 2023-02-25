@@ -70,6 +70,6 @@ fn test_inquiry() {
     assert_eq!(cmd, InquiryCommand::unpack(&bytes).unwrap());    
 
     bytes[4] = 0x31;
-    cmd.control = 0x31;
+    cmd.control = Control::default();
     assert_eq!(cmd, InquiryCommand::unpack(&bytes).unwrap());    
 }

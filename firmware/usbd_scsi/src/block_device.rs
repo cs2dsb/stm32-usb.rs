@@ -22,7 +22,7 @@ pub trait BlockDevice {
     const BLOCK_BYTES: usize;
 
     /// Read the block indicated by `lba` into the provided buffer
-    fn read_block(&self, lba: u32, block: &mut [u8]) -> Result<(), BlockDeviceError>;
+    fn read_block(&mut self, lba: u32, block: &mut [u8]) -> Result<(), BlockDeviceError>;
 
     /// Write the `block` buffer to the block indicated by `lba`
     fn write_block(&mut self, lba: u32, block: &[u8]) -> Result<(), BlockDeviceError>;

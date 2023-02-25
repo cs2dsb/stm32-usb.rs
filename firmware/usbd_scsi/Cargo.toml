@@ -20,7 +20,7 @@ nb                       = "0.1.2"
 typenum                  = "1.11.2"
 itm_logger               = { version = "0.1.0", default-features = false }
 uf2_block                = { version = "0.1.0", path = "../uf2_block" }
-packing                  = { version = "0.1.0", path = "../packing/packing" }
+packing                  = { version = "0.2.0", path = "../packing/packing" }
 usbd_mass_storage        = { version = "0.1.0", path = "../usbd_mass_storage" }
 usbd_bulk_only_transport = { version = "0.1.0", path = "../usbd_bulk_only_transport" }
 
@@ -33,6 +33,6 @@ trace-bot-buffer    = [ "usbd_bulk_only_transport/trace-bot-buffer" ]
 trace-usb-control   = [ "usbd_bulk_only_transport/trace-usb-control" ]
 trace-scsi-command  = []
 trace-scsi-fs       = []
-trace-all           = [ "trace-bot-headers", "trace-bot-states", "trace-bot-bytes", 
-                        "trace-bot-zlp", "trace-bot-buffer", "trace-scsi-command", 
+trace-all           = [ "trace-bot-headers", "trace-bot-states", "trace-bot-bytes",
+                        "trace-bot-zlp", "trace-bot-buffer", "trace-scsi-command",
                         "trace-scsi-fs", "trace-usb-control" ]
