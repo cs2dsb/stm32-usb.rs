@@ -444,8 +444,6 @@ impl<B: UsbBus> BulkOnlyTransport<'_, B> {
     }
 
     fn end_data_transfer(&mut self) -> Result<(), Error> {
-        // Get the csw ready to send
-        self.pack_csw();
 
         // We only send a zero length packet if the last write was a full packet AND we are sending
         // less total bytes than the command header asked for
@@ -453,6 +451,8 @@ impl<B: UsbBus> BulkOnlyTransport<'_, B> {
                         self.state == State::SendingDataToHost &&
                         self.command_status_wrapper.data_residue > 0;
 
+        // Get the csw ready to send
+        self.pack_csw();
 
         // send_zlp or flush are called here because we may not get an interrupt in a timley manner
         // if we don't send immediately and
